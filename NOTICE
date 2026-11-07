@@ -1,0 +1,25 @@
+Themisio
+Copyright (c) 2026 Minh (nev-minhnh) and the Themisio contributors.
+Licensed under the MIT License or the Apache License, Version 2.0, at your option
+(LICENSE-MIT, LICENSE-APACHE).
+
+The Themisio name and logo (crates/themisio/assets/, docs/logo.png) identify this project and are
+not covered by the licence above.
+
+Third-party material
+
+Themisio builds on, and its Windows release bundles, the following open-source work. Each keeps
+its own copyright, licence, NOTICE and attribution files (fetched into upstream/ at build time):
+
+- WordCraft, DeckCraft, GridCraft, PdfCraft — Copyright (c) 2026 ArtCraft Team and their
+  contributors — MIT OR Apache-2.0. https://github.com/storytold
+- storytold/egui (fork of emilk/egui) — MIT OR Apache-2.0; vendored in vendor/egui with
+  Themisio's changes listed in vendor/egui/THEMISIO.md.
+- craft-i18n (interface translations) and, when built with -WithCraftFonts, craft-fonts —
+  see their ATTRIBUTION.md files.
+- Inter (Rasmus Andersson) — SIL Open Font License 1.1, from PdfCraft's assets/fonts.
+- Rust crates listed in Cargo.lock, each under its own licence.
+
+The ArtCraft name, wordmark and logos are trademarks of the ArtCraft Team and are not used by
+Themisio. "Word", "Excel" and "PowerPoint" are trademarks of Microsoft; Themisio is not affiliated
+with Microsoft or Adobe.

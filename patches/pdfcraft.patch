@@ -1,0 +1,63 @@
+diff --git a/crates/ui-egui/src/chrome.rs b/crates/ui-egui/src/chrome.rs
+index 56125d5..7095122 100644
+--- a/crates/ui-egui/src/chrome.rs
++++ b/crates/ui-egui/src/chrome.rs
+@@ -310,9 +310,6 @@ pub fn tab_strip(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
+                         app.dialog = Some(Dialog::Shortcuts);
+                     }
+                     // One click to the community, from anywhere in the app.
+-                    if widgets::ghost_button_sized(ui, "messages-square", "Discord", tab_h).on_hover_text(pdfcraft_engine::links::DISCORD).clicked() {
+-                        app.execute("help.discord");
+-                    }
+                 });
+             });
+         });
+diff --git a/crates/ui-egui/src/home.rs b/crates/ui-egui/src/home.rs
+index f935cba..c081c12 100644
+--- a/crates/ui-egui/src/home.rs
++++ b/crates/ui-egui/src/home.rs
+@@ -83,7 +83,7 @@ pub fn show(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
+                     .font(theme::regular(14.0)),
+             );
+             ui.add_space(14.0);
+-            if !app.community_card_closed {
++            if false && !app.community_card_closed {
+                 egui::Frame::NONE
+                     .fill(t.card)
+                     .stroke(Stroke::new(1.0, t.border))
+diff --git a/crates/ui-egui/src/menus.rs b/crates/ui-egui/src/menus.rs
+index 369ad59..f9d3971 100644
+--- a/crates/ui-egui/src/menus.rs
++++ b/crates/ui-egui/src/menus.rs
+@@ -227,7 +227,7 @@ const SIGN: &[&str] = &[
+ ];
+ const WINDOW: &[&str] = &["view.next_tab", "view.previous_tab"];
+ const HELP: &[&str] =
+-    &["help.shortcuts", SEP, "help.app_page", "help.github", "help.website", "help.discord", SEP, "help.check_updates", SEP, "help.about"];
++    &["help.shortcuts", SEP, "help.github", SEP, "help.about"];
+ 
+ /// A registry shortcut as a craft-keymap chord: `command` is ⌘ (Ctrl elsewhere) and `mac_ctrl`
+ /// the Control key on macOS. `None` for a key craft-keymap doesn't name.
+diff --git a/crates/ui-egui/src/panels/tools.rs b/crates/ui-egui/src/panels/tools.rs
+index fce62fb..63af078 100644
+--- a/crates/ui-egui/src/panels/tools.rs
++++ b/crates/ui-egui/src/panels/tools.rs
+@@ -19,7 +19,9 @@ pub fn left_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
+     }
+     egui::Frame::NONE.fill(t.panel).inner_margin(egui::Margin { left: 14, right: 14, top: 12, bottom: 10 }).stroke(Stroke::new(1.0, t.divider)).show(
+         ui,
+-        |ui| match app.left {
++        |ui| {
++            egui::themisio::toolbar_transition(ui, format!("{:?}", app.left));
++            match app.left {
+             // Organize pages has its own panel whenever the grid shows (with a document open).
+             _ if app.active.is_some() && crate::organize_panel::showing(app) => crate::organize_panel::panel(app, ui, &t),
+             LeftPanel::AllTools => all_tools(app, ui, &t),
+@@ -28,6 +30,7 @@ pub fn left_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
+                 None => app.left = LeftPanel::AllTools,
+             },
+             LeftPanel::CalculationOrder => crate::calc_order_ui::panel(app, ui, &t),
++            }
+         },
+     );
+ }

@@ -1,0 +1,71 @@
+[package]
+name = "themisio"
+description = "Themisio – Make your documents glow. WordCraft, DeckCraft, GridCraft and PdfCraft in one Windows app."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+default-run = "themisio"
+
+[lints]
+workspace = true
+
+[dependencies]
+# ---- The four apps, unmodified (upstream/, pinned in upstream.lock) ----
+wordcraft-ui-egui = { path = "../../upstream/wordcraft/crates/ui-egui" }
+wordcraft-engine = { path = "../../upstream/wordcraft/crates/engine" }
+wordcraft-doc = { path = "../../upstream/wordcraft/crates/doc" }
+wordcraft-fonts = { path = "../../upstream/wordcraft/crates/fonts" }
+wordcraft-control-key = { path = "../../upstream/wordcraft/crates/control-key" }
+# The same package and revision WordCraft's workspace names `wordcraft-proof`.
+wordcraft-proof = { package = "craft-proof", git = "https://github.com/storytold/craft-libs", rev = "01315d9c92b5b0e69082d35ca56099461a1efd45", version = "=0.1.0" }
+
+deckcraft-ui-egui = { path = "../../upstream/deckcraft/crates/ui-egui" }
+deckcraft-engine = { path = "../../upstream/deckcraft/crates/engine" }
+deckcraft-media = { path = "../../upstream/deckcraft/crates/media" }
+
+gridcraft-ui-egui = { path = "../../upstream/gridcraft/crates/ui-egui" }
+gridcraft-engine = { path = "../../upstream/gridcraft/crates/engine" }
+
+pdfcraft-ui-egui = { path = "../../upstream/pdfcraft/crates/ui-egui" }
+pdfcraft-engine = { path = "../../upstream/pdfcraft/crates/engine" }
+
+# ---- Shell ----
+eframe = { version = "0.37", default-features = false, features = ["default_fonts", "wgpu", "glow", "accesskit", "clipboard", "links", "wayland", "x11", "persistence"] }
+egui = { version = "0.37", features = ["default_fonts"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"
+chrono = { version = "0.4.45", default-features = false, features = ["std", "clock"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+rfd = "0.17"
+arboard = { version = "3.7", default-features = false, features = ["image-data"] }
+pollster = "1"
+# WordCraft's isolated print helper and GridCraft's printing: one craft-print for both
+# (WordCraft's newer pin, which adds the driverless printer list and cancellable jobs).
+craft-print = { git = "https://github.com/storytold/craft-libs", rev = "a3e0b5a9440d18f19422a9dca13516747b7d3181" }
+# DeckCraft's audio output for media and slide-show sound.
+cpal = "0.16"
+tempfile = "3"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+# UISettings (animation effects, home region), as WordCraft and PdfCraft read them.
+windows = { version = "0.62", default-features = false, features = ["std", "UI_ViewManagement", "System_UserProfile", "Foundation_Collections", "Win32_System_ProcessStatus", "Win32_System_Threading"] }
+# WordCraft's rich clipboard formats (RTF, format names).
+clipboard-win = { version = "5.4", features = ["std"] }
+# Display devices, to draw on the GPU that drives the monitor (PdfCraft #378).
+winsafe = { version = "0.0.29", default-features = false, features = ["user", "advapi"] }
+# File associations under HKCU\Software\Classes (no admin rights needed).
+winreg = "0.55"
+open = "5"
+
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+winit = { version = "0.30", default-features = false, features = ["x11", "wayland"] }
+zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
+wl-clipboard-rs = "0.9"
+x11rb = "0.13"
+arboard = { version = "3.7", default-features = false, features = ["image-data", "wayland-data-control"] }
+
+[build-dependencies]
+winresource = "0.1"

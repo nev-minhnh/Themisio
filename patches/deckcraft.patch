@@ -1,0 +1,71 @@
+diff --git a/crates/ui-egui/src/backstage/files.rs b/crates/ui-egui/src/backstage/files.rs
+index 4b7cec6..02071ce 100644
+--- a/crates/ui-egui/src/backstage/files.rs
++++ b/crates/ui-egui/src/backstage/files.rs
+@@ -251,8 +251,6 @@ pub(super) fn home(app: &mut SlideApp, ui: &mut Ui, bs: &mut Backstage, out: &mu
+             }
+         });
+     }
+-    ui.add_space(30.0);
+-    ui.hyperlink_to("Join the ArtCraft community on Discord", deckcraft_engine::links::DISCORD);
+ }
+ 
+ /// New: a blank presentation, then every theme and starter template, with a search box.
+diff --git a/crates/ui-egui/src/backstage/info.rs b/crates/ui-egui/src/backstage/info.rs
+index 3ddbda1..6e9829f 100644
+--- a/crates/ui-egui/src/backstage/info.rs
++++ b/crates/ui-egui/src/backstage/info.rs
+@@ -222,7 +222,6 @@ pub(super) fn about(app: &mut SlideApp, ui: &mut Ui) {
+             if task(ui, Icon::Help, "Credits", "Credits", "The people and models who built DeckCraft.", true) {
+                 let _ = app.run("app.about", json!({}));
+             }
+-            ui.hyperlink_to("Join our community on Discord", deckcraft_engine::links::DISCORD);
+             ui.hyperlink_to("Source on GitHub", deckcraft_engine::links::GITHUB);
+         });
+         ui.add_space(40.0);
+diff --git a/crates/ui-egui/src/dialogs/about.rs b/crates/ui-egui/src/dialogs/about.rs
+index 059543b..253015a 100644
+--- a/crates/ui-egui/src/dialogs/about.rs
++++ b/crates/ui-egui/src/dialogs/about.rs
+@@ -26,8 +26,6 @@ pub fn about(_app: &mut SlideApp, ui: &mut Ui) {
+         ui.label("Presentations and slide shows, rebuilt from scratch in pure Rust.");
+         ui.label("An open-source, clean-room project. Not affiliated with Microsoft.");
+         ui.add_space(6.0);
+-        ui.hyperlink_to("Join our community on Discord", deckcraft_engine::links::DISCORD);
+-        ui.hyperlink_to("getartcraft.com/apps/deckcraft", deckcraft_engine::links::APP_PAGE);
+         ui.hyperlink_to("Source on GitHub", deckcraft_engine::links::GITHUB);
+         ui.add_space(6.0);
+         ui.label(egui::RichText::new("MIT OR Apache-2.0 · © 2026 ArtCraft Team and the DeckCraft contributors").size(11.0).color(t.text_faint));
+diff --git a/crates/ui-egui/src/menus.rs b/crates/ui-egui/src/menus.rs
+index fb4c50f..7974249 100644
+--- a/crates/ui-egui/src/menus.rs
++++ b/crates/ui-egui/src/menus.rs
+@@ -307,7 +307,7 @@ pub fn menu_tree() -> Vec<(&'static str, Vec<(&'static str, &'static str)>)> {
+                 ("Set Up Show…", "show.setup"),
+             ],
+         ),
+-        ("Help", vec![("About DeckCraft", "app.about"), ("Check for Updates…", "app.checkUpdates"), ("Command Palette", "app.palette")]),
++        ("Help", vec![("About DeckCraft", "app.about"), ("Command Palette", "app.palette")]),
+     ]
+ }
+ 
+diff --git a/crates/ui-egui/src/ribbon.rs b/crates/ui-egui/src/ribbon.rs
+index 7d2ab7a..f039957 100644
+--- a/crates/ui-egui/src/ribbon.rs
++++ b/crates/ui-egui/src/ribbon.rs
+@@ -206,11 +206,15 @@ pub fn show(app: &mut SlideApp, ui: &mut Ui) {
+         if let Some(offset) = requested {
+             area = area.horizontal_scroll_offset(offset);
+         }
++        let themisio_p = egui::themisio::toolbar_transition(&mut sui, tab.as_str());
+         let scroll =
+             area.scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden).auto_shrink([false, false]).show(&mut sui, |ui| {
+                 ui.set_min_height(RIBBON_H);
+                 ui.horizontal_top(|ui| {
+                     ui.spacing_mut().item_spacing.x = 1.0;
++                    if themisio_p < 1.0 {
++                        ui.add_space((1.0 - themisio_p) * 14.0);
++                    }
+                     match tab.as_str() {
+                         "Home" => home(app, ui),
+                         "Insert" => insert(app, ui),

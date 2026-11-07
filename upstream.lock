@@ -1,0 +1,9 @@
+# The exact upstream commits Themisio is built and tested against.
+# scripts/fetch-upstream.ps1 (Windows) / scripts/fetch-upstream.sh check these out into upstream/.
+# name        repository                                   commit
+wordcraft     https://github.com/storytold/wordcraft       da914ce674f18ebc4e08cca425cc8f8acca3372f
+deckcraft     https://github.com/storytold/deckcraft       0627fb2589087a87519d9b27d533a59cdd32a488
+gridcraft     https://github.com/storytold/gridcraft       dea064b8573a7662a4589d1a20e9504f906f7635
+pdfcraft      https://github.com/storytold/pdfcraft        5644d56c64af1529b0f9012874886fcad855c257
+craft-i18n    https://github.com/storytold/craft-i18n      1e515422afdda2f317af430c1f9d68a5f83935b4
+craft-fonts   https://github.com/storytold/craft-fonts     aced4137c022f1f587624d48e81ec77e1914a9cc

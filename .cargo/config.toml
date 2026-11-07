@@ -1,0 +1,9 @@
+# Interface translations (Vietnamese and ~50 other languages) for WordCraft and PdfCraft come from
+# the craft-i18n checkout; GridCraft carries its own, DeckCraft's come from Themisio (src/i18n/deck_vi.rs).
+# CRAFT_FONTS_DIR (optional, larger binary) is set by `scripts/build.ps1 -WithCraftFonts`.
+[env]
+CRAFT_I18N_DIR = { value = "upstream/craft-i18n", relative = true }
+
+# Cross-building themisio.exe from Linux (scripts/cross-build.sh): MinGW-w64 toolchain.
+[target.x86_64-pc-windows-gnu]
+linker = "x86_64-w64-mingw32-gcc-posix"

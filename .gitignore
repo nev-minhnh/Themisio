@@ -1,0 +1,5 @@
+/target
+/dist
+/upstream/*
+!/upstream/README.md
+*.log

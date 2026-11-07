@@ -1,0 +1,78 @@
+# Themisio – Make your documents glow.
+#
+# One Windows 11 app that hosts the four Craft apps (WordCraft, DeckCraft, GridCraft, PdfCraft)
+# side by side. The apps themselves are used unmodified, as path dependencies on the checkouts in
+# `upstream/` (pinned in `upstream.lock`, fetched by `scripts/fetch-upstream.ps1`). Each checkout
+# keeps its own workspace, so `version.workspace = true` and friends resolve against the upstream
+# root as they always did; this workspace only adds the shell crate and the patch set below.
+[workspace]
+resolver = "3"
+members = ["crates/themisio"]
+exclude = ["upstream", "vendor"]
+
+[workspace.package]
+version = "0.3.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.95"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+
+# Same profiles as the upstream apps: optimised dependencies even in dev builds, so the documents
+# stay responsive while developing.
+[profile.dev.package."*"]
+opt-level = 2
+debug = false
+
+[profile.dev]
+opt-level = 1
+debug = "line-tables-only"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 16
+debug = 0
+strip = true
+
+# A faster release for day-to-day work on a laptop (no LTO).
+[profile.quick]
+inherits = "release"
+lto = false
+codegen-units = 64
+incremental = true
+strip = true
+
+# The union of the four apps' patch sets. A `[patch]` only applies at the workspace root, so
+# without this the apps would build against stock egui/winit and lose their reviewed fixes.
+[patch.crates-io]
+# craft-pdf's backend (WordCraft, DeckCraft).
+krilla = { git = "https://github.com/storytold/craft-libs", rev = "c5a1cbfb5f9049f9270955caffb5bee5997aebf7" }
+# PdfCraft's vendored renderer and parser patches.
+hayro-interpret = { path = "upstream/pdfcraft/vendor/hayro-interpret" }
+hayro = { path = "upstream/pdfcraft/vendor/hayro" }
+hayro-syntax = { path = "upstream/pdfcraft/vendor/hayro-syntax" }
+hayro-cmap = { path = "upstream/pdfcraft/vendor/hayro-cmap" }
+hayro-postscript = { path = "upstream/pdfcraft/vendor/hayro-postscript" }
+hayro-jbig2 = { path = "upstream/pdfcraft/vendor/hayro-jbig2" }
+lopdf = { path = "upstream/pdfcraft/vendor/lopdf" }
+vello_common = { path = "upstream/pdfcraft/vendor/vello_common" }
+vello_cpu = { path = "upstream/pdfcraft/vendor/vello_cpu" }
+# storytold/egui 6d518fc (the fork all four apps pin), plus Themisio's two small additions:
+# an opt-in interface-string translator and tunable wheel smoothing (vendor/egui/THEMISIO.md).
+ecolor = { path = "vendor/egui/crates/ecolor" }
+emath = { path = "vendor/egui/crates/emath" }
+epaint = { path = "vendor/egui/crates/epaint" }
+epaint_default_fonts = { path = "vendor/egui/crates/epaint_default_fonts" }
+egui = { path = "vendor/egui/crates/egui" }
+egui-winit = { path = "vendor/egui/crates/egui-winit" }
+egui-wgpu = { path = "vendor/egui/crates/egui-wgpu" }
+egui_glow = { path = "vendor/egui/crates/egui_glow" }
+egui_extras = { path = "vendor/egui/crates/egui_extras" }
+eframe = { path = "vendor/egui/crates/eframe" }
+winit = { git = "https://github.com/storytold/winit.git", rev = "a517b3846ee8457d84ee4975110bfda6797c44dc" }

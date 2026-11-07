@@ -1,0 +1,113 @@
+# Build Themisio for Windows on GitHub's runners: on every push to main, on pull requests, by
+# hand (Actions ▸ Build ▸ Run workflow), and for a tag v* (which also publishes a Release).
+# Produces Themisio-<version>-win-x64.zip (the exe, ready to run) and Themisio-<version>-source.zip.
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths-ignore: ["**.md", "docs/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_QUICK_INCREMENTAL: "false"
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+
+jobs:
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 180
+    steps:
+      - name: Git settings (long paths, keep LF so patches/ apply)
+        run: |
+          git config --system core.longpaths true
+          git config --global core.autocrlf false
+
+      - uses: actions/checkout@v4
+
+      - name: Version
+        id: version
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          "version=$v" >> $env:GITHUB_OUTPUT
+          Write-Host "Themisio $v"
+
+      - name: Fetch the four apps (upstream.lock) and apply patches/
+        shell: pwsh
+        run: scripts\fetch-upstream.ps1
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          shared-key: themisio-windows
+
+      - name: Build (profile quick)
+        shell: pwsh
+        run: |
+          $env:CRAFT_I18N_DIR = (Resolve-Path "upstream\craft-i18n").Path
+          $env:CRAFT_I18N_REQUIRED = "1"
+          cargo build -p themisio --profile quick --locked
+          if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
+
+      - name: Test
+        shell: pwsh
+        run: |
+          $env:CRAFT_I18N_DIR = (Resolve-Path "upstream\craft-i18n").Path
+          cargo test -p themisio --profile quick --locked
+          if ($LASTEXITCODE -ne 0) { throw "cargo test failed" }
+
+      - name: Smoke test
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath target\quick\themisio.exe -ArgumentList "--version" -NoNewWindow -Wait -PassThru -RedirectStandardOutput version.txt
+          $out = Get-Content version.txt -Raw
+          Write-Host "exit $($p.ExitCode): $out"
+          if ($p.ExitCode -ne 0) { throw "themisio.exe --version failed" }
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $v = "${{ steps.version.outputs.version }}"
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item target\quick\themisio.exe "dist\Themisio-$v.exe"
+          Copy-Item README.md, LICENSE-MIT, LICENSE-APACHE, NOTICE, CHANGELOG.md dist\
+          Compress-Archive -Path "dist\Themisio-$v.exe", dist\README.md, dist\LICENSE-MIT, dist\LICENSE-APACHE, dist\NOTICE, dist\CHANGELOG.md -DestinationPath "Themisio-$v-win-x64.zip" -CompressionLevel Optimal
+          git archive --format=zip --prefix="Themisio-$v/" -o "Themisio-$v-source.zip" HEAD
+          Get-ChildItem *.zip | Format-Table Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Themisio-${{ steps.version.outputs.version }}-win-x64
+          path: Themisio-${{ steps.version.outputs.version }}-win-x64.zip
+          compression-level: 0
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Themisio-${{ steps.version.outputs.version }}-source
+          path: Themisio-${{ steps.version.outputs.version }}-source.zip
+          compression-level: 0
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Themisio ${{ steps.version.outputs.version }}
+          body: "Themisio – Make your documents glow. See CHANGELOG.md."
+          files: |
+            Themisio-${{ steps.version.outputs.version }}-win-x64.zip
+            Themisio-${{ steps.version.outputs.version }}-source.zip
