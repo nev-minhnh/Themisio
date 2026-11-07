@@ -74,7 +74,7 @@ impl HomeState {
                         ui.vertical(|ui| {
                             ui.add_space(4.0);
                             ui.label(RichText::new("Themisio").font(semibold(30.0)).color(p.text));
-                            ui.label(RichText::new(format!("Themisio – {}", t(lang, "Make your documents glow."))).size(15.0).color(p.muted));
+                            ui.label(RichText::new(t(lang, "Make your documents glow.")).size(15.0).color(p.muted));
                         });
                     });
                     ui.add_space(30.0);

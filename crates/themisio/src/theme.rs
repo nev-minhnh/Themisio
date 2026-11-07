@@ -11,6 +11,8 @@ pub const BRAND: Color32 = Color32::from_rgb(0x06, 0x26, 0x4D);
 pub const BRAND_DEEP: Color32 = Color32::from_rgb(0x02, 0x12, 0x2C);
 /// The ruler's gold: selection, the bar's hint line, accents on navy.
 pub const GOLD: Color32 = Color32::from_rgb(0xF6, 0xC2, 0x4A);
+/// A deeper gold that stays visible on light backgrounds (the tucked-away bar's line).
+pub const GOLD_DEEP: Color32 = Color32::from_rgb(0xE0, 0xA1, 0x1B);
 /// Text and icons on navy.
 pub const CREAM: Color32 = Color32::from_rgb(0xF3, 0xF6, 0xFB);
 

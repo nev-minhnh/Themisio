@@ -1102,9 +1102,10 @@ impl eframe::App for Themisio {
             let glow = ctx.animate_bool_with_time(Id::unique("themisio-rail-edge-glow"), near, 0.15);
             let fade = 1.0 - reveal;
             let p = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, Id::unique("themisio-rail-edge")));
-            let w = 2.0 + 1.5 * glow;
+            let w = 3.0 + 2.0 * glow;
             let line = Rect::from_min_size(pos2(full.left(), full.top() + 6.0), vec2(w, full.height() - 12.0));
-            p.rect_filled(line, CornerRadius { nw: 0, sw: 0, ne: 2, se: 2 }, crate::theme::GOLD.gamma_multiply((0.55 + 0.45 * glow) * fade));
+            let gold = crate::theme::GOLD_DEEP.lerp_to_gamma(crate::theme::GOLD, glow);
+            p.rect_filled(line, CornerRadius { nw: 0, sw: 0, ne: 2, se: 2 }, gold.gamma_multiply((0.9 + 0.1 * glow) * fade));
         }
 
         // Shell dialogs.
