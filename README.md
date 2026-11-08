@@ -80,7 +80,7 @@ powershell -ExecutionPolicy Bypass -File scripts\build.ps1            # build re
 
 **GitHub Actions**: mỗi lần đẩy lên `main` (hoặc chạy tay *Run workflow*) sẽ build trên
 `windows-latest` và đính kèm hai tệp `Themisio-<phiên bản>-win-x64.zip` và
-`Themisio-<phiên bản>-source.zip`. Đẩy một tag `v*` sẽ tạo Release.
+`Themisio-<phiên bản>-source.zip`, rồi tạo (hoặc cập nhật) Release `v<phiên bản>` với hai tệp đó.
 
 Dòng lệnh: `themisio [--app docs|slides|sheets|pdf] [--new docs|slides|sheets|pdf] [--new-window] [TỆP…]`,
 `themisio --register-file-types`, `themisio --version`.
