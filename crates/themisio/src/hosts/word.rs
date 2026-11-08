@@ -114,6 +114,14 @@ impl WordHost {
         session.system_region = region;
         let mut app = WordApp::new(session, services(file_dialog, ctx));
         load_prefs(&mut app);
+        // WordCraft's default user is "WordCraft User" (initials "WU" on the account button,
+        // author of comments and tracked changes). Until the user picks a name in Options,
+        // use theirs: the name Office has, else the Windows account's.
+        if app.session.author == "WordCraft User"
+            && let Some(name) = crate::hosts::user_name()
+        {
+            app.session.author = name;
+        }
         load_user_dictionary(&mut app);
         wordcraft_engine::packs::use_font_store(true);
         if app.session.prefs.region.is_some() {

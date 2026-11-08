@@ -152,3 +152,29 @@ impl Hosts {
 pub fn path_text(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
+
+/// The person using this computer, for apps that sign comments and changes: the user name Office
+/// keeps (`HKCU\Software\Microsoft\Office\Common\UserInfo`), else the Windows account name.
+pub fn user_name() -> Option<String> {
+    #[cfg(windows)]
+    {
+        let office = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER)
+            .open_subkey("Software\\Microsoft\\Office\\Common\\UserInfo")
+            .and_then(|k| k.get_value::<String, _>("UserName"))
+            .ok()
+            .map(|n| n.trim().to_string())
+            .filter(|n| !n.is_empty());
+        if office.is_some() {
+            return office;
+        }
+    }
+    let account = std::env::var(if cfg!(windows) { "USERNAME" } else { "USER" }).ok()?;
+    let account = account.trim();
+    if account.is_empty() {
+        return None;
+    }
+    // "minh" reads "Minh" (and its initial "M").
+    let mut chars = account.chars();
+    let first = chars.next()?;
+    Some(first.to_uppercase().chain(chars).collect())
+}

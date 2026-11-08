@@ -2,6 +2,11 @@
 
 Lịch sử: Themisio có tên **Ostium** ở 0.1.0 và 0.2.0.
 
+## 0.3.1 — 2026-11-08
+- Documents: tên người dùng mặc định (ký hiệu "WU" ở nút tài khoản, tác giả của chú thích và
+  theo dõi thay đổi) lấy từ tên người dùng Office trên máy, nếu không có thì từ tên tài khoản
+  Windows, thay cho "WordCraft User". Tên đã đặt trong Tệp ▸ Tùy chọn được giữ nguyên.
+
 ## 0.3.0 — 2026-11-08
 
 **Tên và nhận diện**
