@@ -2,6 +2,12 @@
 
 Lịch sử: Themisio có tên **Ostium** ở 0.1.0 và 0.2.0.
 
+## 0.5.4 — 2026-11-09
+- Sửa lỗi: thẻ gợi ý của trợ lý viết không còn hiện lên khi Cài đặt (hay bất kỳ hộp thoại, menu,
+  popup nào) đang che chữ bên dưới.
+- Nút **Dừng quét** trong bảng trợ lý viết: dừng ngay yêu cầu đang chạy và phần còn lại của lượt
+  quét cả tài liệu; kiểm tra khi gõ cũng tạm dừng cho tới khi bạn sửa chữ.
+
 ## 0.5.3 — 2026-11-09
 - Trợ lý viết: **Kiểm tra khi gõ chỉ quét phần chữ đang hiện trên màn hình**; quét cả tài liệu chỉ
   khi bấm **Quét cả tài liệu** (hoặc Ctrl+Alt+G, chuột phải › Kiểm tra văn bản bằng AI).

@@ -174,6 +174,8 @@ pub struct Out {
 
 pub struct Writer {
     pub panel: bool,
+    /// Set by the shell while a dialog (Settings, …) covers the page: no hover cards then.
+    pub blocked: bool,
     tab: Tab,
     filter: Option<Cat>,
     kind: Option<AppKind>,
@@ -190,6 +192,8 @@ pub struct Writer {
     job: Option<Job<Batch>>,
     /// When the document last scrolled (checks wait until it has been still for a second).
     scrolled_at: f64,
+    /// Stop checking was pressed: checks as you type pause until the text changes again.
+    stopped_at: Option<f64>,
     changed_at: f64,
     /// Check everything now (the Check button, or a right-click Check writing).
     wanted: bool,
@@ -214,6 +218,7 @@ impl Default for Writer {
     fn default() -> Self {
         Self {
             panel: false,
+            blocked: false,
             tab: Tab::Suggestions,
             filter: None,
             kind: None,
@@ -225,6 +230,7 @@ impl Default for Writer {
             pending: HashSet::new(),
             job: None,
             scrolled_at: 0.0,
+            stopped_at: None,
             changed_at: 0.0,
             wanted: false,
             dismissed: HashSet::new(),
@@ -441,7 +447,8 @@ impl Writer {
             self.scrolled_at = now;
         }
         let still = now - self.scrolled_at >= 1.0;
-        let due = self.wanted || (s.auto_check && still && now - self.changed_at >= delay);
+        let paused = self.stopped_at.is_some_and(|t| self.changed_at <= t);
+        let due = self.wanted || (s.auto_check && still && !paused && now - self.changed_at >= delay);
         if self.job.is_none() && due {
             // As you type, only the text on screen is checked; the whole document only when you
             // ask (Check the whole document, Ctrl+Alt+G). Checked, unchanged text never goes again.
@@ -504,7 +511,11 @@ impl Writer {
         let viewport = host.ai_viewport();
         if let Some(view) = viewport {
             let painter = ctx.layer_painter(egui::LayerId::background()).with_clip_rect(view);
-            let pointer = ctx.pointer_hover_pos();
+            // Only when the pointer is on the page itself, not on a dialog, menu or popup above it.
+            let pointer = ctx.pointer_hover_pos().filter(|p| !self.blocked && ctx.layer_id_at(*p).is_none_or(|l| l.order <= egui::Order::Middle));
+            if self.blocked {
+                self.hover = None;
+            }
             let mut over: Option<(usize, Issue, Rect)> = None;
             for sh in shown.iter().take(150) {
                 let key = self.units[sh.unit].key.clone();
@@ -704,8 +715,17 @@ impl Writer {
                 ui.add_space(6.0);
                 let all_checked = self.units.iter().all(|u| self.checked.contains_key(&u.hash));
                 ui.horizontal(|ui| {
-                    if super::kit::primary_enabled(ui, self.job.is_none() && !self.wanted && !all_checked, t(lang, "Check whole document")).clicked() {
+                    if self.job.is_some() || self.wanted {
+                        // Stop: drop the request under way and the rest of a whole-document check.
+                        if super::kit::secondary(ui, t(lang, "Stop checking")).clicked() {
+                            self.job = None;
+                            self.wanted = false;
+                            self.pending.clear();
+                            self.stopped_at = Some(ui.ctx().input(|i| i.time));
+                        }
+                    } else if super::kit::primary_enabled(ui, !all_checked, t(lang, "Check whole document")).clicked() {
                         self.wanted = true;
+                        self.stopped_at = None;
                     }
                     super::kit::hint(ui, if s.auto_check { t(lang, "As you type, only the text on screen is checked.") } else { "" });
                 });

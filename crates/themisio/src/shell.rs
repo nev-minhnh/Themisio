@@ -641,6 +641,7 @@ impl Themisio {
         let style = self.dialog_style(ctx);
         // The writing assistant: underlines, cards, the score and its panel.
         if writing && let Some(host) = self.hosts.get(kind) {
+            self.writer.blocked = self.dialog.is_some();
             let out = self.writer.frame(ctx, host, kind, &mut self.settings.ai, lang, now, area, dock_rect, &style);
             for (level, text) in out.notices {
                 self.notices.push(level, Some(kind.name()), text, now);
