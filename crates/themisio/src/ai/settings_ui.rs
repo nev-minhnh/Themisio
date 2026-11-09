@@ -1,11 +1,12 @@
-//! Settings ▸ AI: providers and their keys (Windows Credential Manager), Claude Code, the models
-//! each feature uses, effort and thinking, the writing assistant per app, auto-check,
-//! translation and writing skills.
+//! Settings › AI: providers and their keys (Windows Credential Manager), Claude Code, the models
+//! each feature uses, effort and thinking, the writing assistant per app, check-as-you-type,
+//! translation and writing skills — as pages of the Settings window, each a set of cards.
 
 use std::collections::HashMap;
 
-use egui::{Color32, RichText};
+use egui::RichText;
 
+use super::kit::{self, Icon};
 use super::{AiSettings, CcStatus, Job, PRESETS, ProviderCfg, Request, Wire, keys};
 use crate::i18n::{Lang, t, tf};
 
@@ -21,13 +22,8 @@ pub struct AiSettingsUi {
     cc: Option<CcStatus>,
     cc_job: Option<Job<CcStatus>>,
     skills: Option<Vec<super::skills::Skill>>,
-}
-
-fn green() -> Color32 {
-    Color32::from_rgb(0x2B, 0xB8, 0x6A)
-}
-fn red() -> Color32 {
-    Color32::from_rgb(0xF0, 0x3C, 0x45)
+    /// The provider card that is open.
+    expanded: Option<String>,
 }
 
 impl AiSettingsUi {
@@ -42,111 +38,73 @@ impl AiSettingsUi {
         *self.has_key.entry(id.to_string()).or_insert_with(|| keys::has(id))
     }
 
-    /// The page. Returns whether a setting changed (to save).
-    pub fn show(&mut self, ui: &mut egui::Ui, s: &mut AiSettings, lang: Lang) -> bool {
+    /// Settings › AI providers. Returns whether a setting changed (to save).
+    pub fn providers_page(&mut self, ui: &mut egui::Ui, s: &mut AiSettings, lang: Lang) -> bool {
         let mut changed = false;
         let ctx = ui.ctx().clone();
-        self.poll(&ctx, s, &mut changed);
-        egui::ScrollArea::vertical().max_height(560.0).min_scrolled_height(540.0).auto_shrink([false, true]).show(ui, |ui| {
-            // ---------------- Providers ----------------
-            ui.label(RichText::new(t(lang, "Providers")).heading());
-            ui.label(
-                RichText::new(t(lang, "Keys are stored in Windows Credential Manager. Requests go directly from your PC to the provider. Keys you saved in Callio are used too."))
-                    .small()
-                    .weak(),
-            );
-            ui.add_space(4.0);
-            let mut ids: Vec<(String, String, Wire, &'static str, &'static str)> =
-                PRESETS.iter().map(|p| (p.id.to_string(), p.name.to_string(), p.wire, p.base_url, p.key_url)).collect();
-            for (id, c) in &s.providers {
-                if id.starts_with("custom") {
-                    ids.push((id.clone(), if c.name.is_empty() { "Custom".into() } else { c.name.clone() }, Wire::OpenAi, "", ""));
-                }
-            }
-            let mut remove: Option<String> = None;
-            for (id, name, _wire, base, key_url) in ids {
-                let cfg = s.cfg(&id);
-                let ready = cfg.enabled && (self.key_saved(&id) || id == "llamacpp" || id.starts_with("custom")) && !cfg.models.is_empty();
-                let title = RichText::new(format!("{}  {}", if ready { "●" } else { "○" }, name)).color(if ready { green() } else { ui.visuals().text_color() });
-                egui::CollapsingHeader::new(title).id_salt(("themisio-ai-provider", &id)).show(ui, |ui| {
-                    changed |= self.provider(ui, s, &id, base, key_url, lang);
-                    if id.starts_with("custom") && ui.button(t(lang, "Remove this provider")).clicked() {
-                        remove = Some(id.clone());
-                    }
-                });
-            }
-            if let Some(id) = remove {
-                s.providers.remove(&id);
-                let _ = keys::set(&id, "");
-                changed = true;
-            }
-            ui.horizontal_wrapped(|ui| {
-                ui.label(t(lang, "Add an OpenAI-compatible provider:"));
-                for (name, url) in super::CUSTOM_TEMPLATES.iter().copied().chain([("Other", "")]) {
-                    if ui.small_button(if name == "Other" { t(lang, "Other…") } else { name }).clicked() {
-                        let n = (1..).find(|i| !s.providers.contains_key(&format!("custom-{i}"))).unwrap_or(1);
-                        s.providers.insert(
-                            format!("custom-{n}"),
-                            ProviderCfg { enabled: true, base_url: url.into(), models: Vec::new(), name: if name == "Other" { format!("Custom {n}") } else { name.into() } },
-                        );
-                        changed = true;
-                    }
-                }
-            });
-            ui.separator();
+        self.poll();
+        kit::page_title(
+            ui,
+            t(lang, "AI providers"),
+            t(lang, "Sign in once and every app uses it. Keys are stored in Windows Credential Manager; requests go straight from your PC to the provider."),
+        );
 
-            // ---------------- Claude Code ----------------
-            ui.label(RichText::new("Claude Code").heading());
-            changed |= ui.checkbox(&mut s.claude_code, t(lang, "Use Claude Code (works with a Claude Pro or Max plan, no API key)")).changed();
+        // Claude Code first: it needs no key.
+        kit::card(ui, |ui| {
+            let p = kit::palette(ui);
+            kit::setting_row(ui, "Claude Code", t(lang, "Use your Claude Pro or Max plan — no API key."), |ui| {
+                changed |= kit::switch(ui, &mut s.claude_code).changed();
+            });
             if self.cc.is_none() && self.cc_job.is_none() {
                 self.cc_job = Some(Job::spawn(&ctx, |_| Ok(super::claude_code_status())));
             }
-            ui.horizontal_wrapped(|ui| {
-                match &self.cc {
-                    None => {
-                        ui.spinner();
-                        ui.label(t(lang, "Looking for Claude Code…"));
-                    }
-                    Some(st) if !st.installed => {
-                        ui.colored_label(red(), t(lang, "Claude Code isn't installed on this PC."));
-                        ui.hyperlink_to(t(lang, "How to install"), "https://docs.claude.com/en/docs/claude-code/setup");
-                    }
-                    Some(st) => {
-                        let v = st.version.clone().unwrap_or_else(|| "Claude Code".into());
-                        if st.signed_in {
-                            let who = st.account.clone().map(|a| format!(" ({a})")).unwrap_or_default();
-                            ui.colored_label(green(), format!("{v} — {}{who}", t(lang, "signed in with your Claude plan")));
-                            if ui.small_button(t(lang, "Sign out")).clicked() {
-                                let _ = super::claude_code_sign_out();
-                                self.cc = None;
-                            }
-                        } else {
-                            ui.label(format!("{v} — {}", t(lang, "not signed in")));
-                            if ui.small_button(t(lang, "Sign in")).clicked() {
-                                if let Err(e) = super::claude_code_sign_in() {
-                                    self.results.insert("claudecode".into(), (false, e));
-                                }
-                            }
-                        }
-                        if ui.small_button(t(lang, "Refresh")).clicked() {
+            kit::row_rule(ui);
+            ui.horizontal_wrapped(|ui| match &self.cc {
+                None => {
+                    ui.spinner();
+                    ui.label(RichText::new(t(lang, "Looking for Claude Code…")).color(p.muted));
+                }
+                Some(st) if !st.installed => {
+                    kit::status(ui, kit::RED, t(lang, "Claude Code isn't installed on this PC."));
+                    ui.hyperlink_to(t(lang, "How to install"), "https://docs.claude.com/en/docs/claude-code/setup");
+                }
+                Some(st) => {
+                    let v = st.version.clone().unwrap_or_else(|| "Claude Code".into());
+                    if st.signed_in {
+                        let who = st.account.clone().map(|a| format!(" ({a})")).unwrap_or_default();
+                        kit::status(ui, kit::GREEN, &format!("{v} — {}{who}", t(lang, "signed in with your Claude plan")));
+                        if kit::secondary(ui, t(lang, "Sign out")).clicked() {
+                            let _ = super::claude_code_sign_out();
                             self.cc = None;
                         }
+                    } else {
+                        kit::status(ui, kit::AMBER, &format!("{v} — {}", t(lang, "not signed in")));
+                        if kit::primary(ui, t(lang, "Sign in")).clicked()
+                            && let Err(e) = super::claude_code_sign_in()
+                        {
+                            self.results.insert("claudecode".into(), (false, e));
+                        }
+                    }
+                    if kit::icon_button(ui, Icon::Retry, t(lang, "Refresh")).clicked() {
+                        self.cc = None;
                     }
                 }
             });
-            ui.label(
-                RichText::new(t(
+            if let Some((ok, text)) = self.results.get("claudecode") {
+                ui.colored_label(if *ok { kit::GREEN } else { kit::RED }, text);
+            }
+            kit::hint(
+                ui,
+                t(
                     lang,
                     "Themisio runs Anthropic's official Claude Code with your own sign-in and never sees your password or tokens. It only reads the text you send and changes nothing on your PC. Usage counts toward your plan's limits.",
-                ))
-                .small()
-                .weak(),
+                ),
             );
+            ui.add_space(4.0);
             ui.horizontal(|ui| {
-                ui.label(t(lang, "Other Claude Code model id:"));
                 let e = self.model_edit.entry("claudecode".into()).or_default();
-                ui.add(egui::TextEdit::singleline(e).hint_text("claude-…").desired_width(160.0));
-                if ui.small_button(t(lang, "Add")).clicked() && !e.trim().is_empty() {
+                ui.add(egui::TextEdit::singleline(e).hint_text(t(lang, "Other model id, e.g. claude-…")).desired_width(220.0));
+                if kit::secondary(ui, t(lang, "Add")).clicked() && !e.trim().is_empty() {
                     let mut c = s.cfg("claudecode");
                     if !c.models.contains(&e.trim().to_string()) {
                         c.models.push(e.trim().to_string());
@@ -156,63 +114,169 @@ impl AiSettingsUi {
                     changed = true;
                 }
             });
-            ui.separator();
+        });
+        ui.add_space(10.0);
 
-            // ---------------- Models ----------------
-            ui.label(RichText::new(t(lang, "Models")).heading());
-            egui::Grid::new("themisio-ai-models").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
-                ui.label(t(lang, "Writing assistant"));
+        let mut ids: Vec<(String, String, Wire, &'static str, &'static str)> =
+            PRESETS.iter().map(|p| (p.id.to_string(), p.name.to_string(), p.wire, p.base_url, p.key_url)).collect();
+        for (id, c) in &s.providers {
+            if id.starts_with("custom") {
+                ids.push((id.clone(), if c.name.is_empty() { "Custom".into() } else { c.name.clone() }, Wire::OpenAi, "", ""));
+            }
+        }
+        let mut remove: Option<String> = None;
+        for (id, name, _wire, base, key_url) in ids {
+            let mut cfg = s.cfg(&id);
+            let keyless = id == "llamacpp" || id.starts_with("custom");
+            let has_key = self.key_saved(&id);
+            let (color, state) = if !cfg.enabled {
+                (kit::palette(ui).muted, t(lang, "Off").to_string())
+            } else if !has_key && !keyless {
+                (kit::AMBER, t(lang, "Needs an API key").to_string())
+            } else if cfg.models.is_empty() {
+                (kit::AMBER, t(lang, "Add a model").to_string())
+            } else {
+                (kit::GREEN, tf(lang, "Ready · {n} models", &[("n", &cfg.models.len().to_string())]))
+            };
+            let open = self.expanded.as_deref() == Some(id.as_str());
+            kit::card(ui, |ui| {
+                let p = kit::palette(ui);
+                let head = ui
+                    .horizontal(|ui| {
+                        ui.set_min_height(30.0);
+                        kit::paint_icon(ui.painter(), if open { Icon::ChevronUp } else { Icon::Chevron }, ui.cursor().min + egui::vec2(6.0, 15.0), p.muted);
+                        ui.add_space(18.0);
+                        ui.vertical(|ui| {
+                            ui.label(RichText::new(&name).font(crate::theme::bold_font(ui.ctx(), 13.5)).color(p.text));
+                            kit::status(ui, color, &state);
+                        });
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if kit::switch(ui, &mut cfg.enabled).changed() {
+                                changed = true;
+                            }
+                        });
+                    })
+                    .response;
+                if ui.interact(head.rect, ui.scope_id().with(("provider-head", &id)), egui::Sense::click()).clicked() {
+                    self.expanded = if open { None } else { Some(id.clone()) };
+                }
+                if open {
+                    kit::row_rule(ui);
+                    changed |= self.provider(ui, s, &mut cfg, &id, base, key_url, lang);
+                    if id.starts_with("custom") {
+                        ui.add_space(6.0);
+                        if kit::secondary(ui, t(lang, "Remove this provider")).clicked() {
+                            remove = Some(id.clone());
+                        }
+                    }
+                }
+            });
+            if s.providers.get(&id) != Some(&cfg) {
+                s.providers.insert(id.clone(), cfg);
+                changed = true;
+            }
+            ui.add_space(6.0);
+        }
+        if let Some(id) = remove {
+            s.providers.remove(&id);
+            let _ = keys::set(&id, "");
+            changed = true;
+        }
+        ui.add_space(4.0);
+        kit::section(ui, t(lang, "Add an OpenAI-compatible provider"));
+        ui.horizontal_wrapped(|ui| {
+            for (name, url) in super::CUSTOM_TEMPLATES.iter().copied().chain([("Other", "")]) {
+                if kit::secondary(ui, if name == "Other" { t(lang, "Other…") } else { name }).clicked() {
+                    let n = (1..).find(|i| !s.providers.contains_key(&format!("custom-{i}"))).unwrap_or(1);
+                    let id = format!("custom-{n}");
+                    s.providers.insert(id.clone(), ProviderCfg { enabled: true, base_url: url.into(), models: Vec::new(), name: if name == "Other" { format!("Custom {n}") } else { name.into() } });
+                    self.expanded = Some(id);
+                    changed = true;
+                }
+            }
+        });
+        changed
+    }
+
+    /// Settings › AI features: models, effort, thinking, the writing assistant.
+    pub fn features_page(&mut self, ui: &mut egui::Ui, s: &mut AiSettings, lang: Lang) -> bool {
+        let mut changed = false;
+        kit::page_title(ui, t(lang, "AI features"), t(lang, "Which model each feature uses, and how the writing assistant works."));
+        kit::section(ui, t(lang, "Models"));
+        kit::card(ui, |ui| {
+            kit::setting_row(ui, t(lang, "Writing assistant"), t(lang, "Checks, rewrites, Ask AI."), |ui| {
                 changed |= model_combo(ui, "ai-write", s, &mut s.write_model.clone(), lang, false).map(|v| s.write_model = v).is_some();
-                ui.end_row();
-                ui.label(t(lang, "CalcSheet assistant"));
+            });
+            kit::row_rule(ui);
+            kit::setting_row(ui, t(lang, "CalcSheet assistant"), t(lang, "Data analysis, formulas and charts."), |ui| {
                 changed |= model_combo(ui, "ai-sheet", s, &mut s.sheet_model.clone(), lang, true).map(|v| s.sheet_model = v).is_some();
-                ui.end_row();
-                ui.label(t(lang, "Effort"));
+            });
+            kit::row_rule(ui);
+            kit::setting_row(ui, t(lang, "Effort"), t(lang, "More effort is slower but more thorough."), |ui| {
                 let label = super::EFFORTS.iter().find(|(v, _)| *v == s.effort).map_or("Model default", |(_, l)| l);
-                egui::ComboBox::from_id_salt("themisio-ai-effort").selected_text(t(lang, label)).show_ui(ui, |ui| {
+                egui::ComboBox::from_id_salt("themisio-ai-effort").selected_text(t(lang, label)).width(200.0).show_ui(ui, |ui| {
                     for (v, l) in super::EFFORTS {
                         changed |= ui.selectable_value(&mut s.effort, v.to_string(), t(lang, l)).changed();
                     }
                 });
-                ui.end_row();
-                ui.label(t(lang, "Thinking"));
-                changed |= ui.checkbox(&mut s.thinking, t(lang, "Let the model think before answering (slower, more thorough)")).changed();
-                ui.end_row();
             });
-            ui.separator();
-
-            // ---------------- Writing assistant ----------------
-            ui.label(RichText::new(t(lang, "Writing assistant")).heading());
-            ui.horizontal(|ui| {
-                ui.label(t(lang, "On in:"));
-                changed |= ui.checkbox(&mut s.apps.documents, "Documents").changed();
-                changed |= ui.checkbox(&mut s.apps.presentation, "Presentation").changed();
-                changed |= ui.checkbox(&mut s.apps.calcsheet, "CalcSheet").changed();
+            kit::row_rule(ui);
+            kit::setting_row(ui, t(lang, "Thinking"), t(lang, "Let the model think before answering (slower, more thorough)."), |ui| {
+                changed |= kit::switch(ui, &mut s.thinking).changed();
             });
-            changed |= ui.checkbox(&mut s.check_style, t(lang, "Suggest style, clarity and word choice as well as spelling and grammar")).changed();
-            changed |= ui.checkbox(&mut s.auto_check, t(lang, "Check automatically after a pause in typing (each check is a request to the provider)")).changed();
+            if s.choices().is_empty() {
+                ui.add_space(4.0);
+                kit::hint(ui, &tf(lang, "Turn on a provider in AI providers, or {cc}.", &[("cc", "Claude Code")]));
+            }
+        });
+        ui.add_space(12.0);
+        kit::section(ui, t(lang, "Writing assistant"));
+        kit::card(ui, |ui| {
+            for (label, on) in [("Documents", &mut s.apps.documents), ("Presentation", &mut s.apps.presentation), ("CalcSheet", &mut s.apps.calcsheet)] {
+                kit::setting_row(ui, &tf(lang, "On in {app}", &[("app", label)]), "", |ui| {
+                    changed |= kit::switch(ui, on).changed();
+                });
+                kit::row_rule(ui);
+            }
+            kit::setting_row(ui, t(lang, "Check as you type"), t(lang, "Underline suggestions while you write or paste (each check is a request to the provider)."), |ui| {
+                changed |= kit::switch(ui, &mut s.auto_check).changed();
+            });
             if s.auto_check {
-                ui.horizontal(|ui| {
-                    ui.label(t(lang, "Pause before checking"));
+                kit::row_rule(ui);
+                kit::setting_row(ui, t(lang, "Pause before checking"), "", |ui| {
                     changed |= ui.add(egui::Slider::new(&mut s.auto_delay_ms, 800..=6000).suffix(" ms")).changed();
                 });
             }
-            ui.label(t(lang, "Your instructions for every writing request"));
+            kit::row_rule(ui);
+            kit::setting_row(ui, t(lang, "Clarity, engagement and delivery"), t(lang, "Suggest style, clarity and word choice as well as spelling and grammar."), |ui| {
+                changed |= kit::switch(ui, &mut s.check_style).changed();
+            });
+            kit::row_rule(ui);
+            kit::setting_row(ui, t(lang, "Look up words on double-click"), t(lang, "Double-click a word to see what it means."), |ui| {
+                changed |= kit::switch(ui, &mut s.define_on_double_click).changed();
+            });
+            kit::row_rule(ui);
+            ui.label(RichText::new(t(lang, "Your instructions for every writing request")).size(13.0));
             changed |= ui
                 .add(
                     egui::TextEdit::multiline(&mut s.instructions)
                         .hint_text(t(lang, "e.g. Use British spelling. Keep an academic tone. Don't change citations."))
-                        .desired_rows(2)
+                        .desired_rows(3)
                         .desired_width(f32::INFINITY),
                 )
                 .changed();
-            ui.label(RichText::new(t(lang, "Shortcuts: Ctrl+Alt+G check writing, Ctrl+Alt+K ask AI, Ctrl+Alt+T translate — or right-click the text.")).small().weak());
-            ui.separator();
+        });
+        ui.add_space(8.0);
+        kit::hint(ui, t(lang, "Shortcuts: Ctrl+Alt+G check writing, Ctrl+Alt+K ask AI, Ctrl+Alt+T translate, Ctrl+Alt+D look up a word, Ctrl+Alt+A CalcSheet assistant — or right-click the text."));
+        changed
+    }
 
-            // ---------------- Translation ----------------
-            ui.label(RichText::new(t(lang, "Translation")).heading());
-            ui.horizontal(|ui| {
-                ui.label(t(lang, "Translate with"));
+    /// Settings › Translation.
+    pub fn translation_page(&mut self, ui: &mut egui::Ui, s: &mut AiSettings, lang: Lang) -> bool {
+        let mut changed = false;
+        kit::page_title(ui, t(lang, "Translation"), t(lang, "Right-click selected text › Translate, or press Ctrl+Alt+T."));
+        kit::card(ui, |ui| {
+            kit::setting_row(ui, t(lang, "Translate with"), t(lang, "Google Translate is free; an AI model keeps tone and formatting better."), |ui| {
                 let label = if s.translate_engine == "google" { "Google Translate".to_string() } else { s.label(&s.translate_engine) };
                 let mut v = s.translate_engine.clone();
                 egui::ComboBox::from_id_salt("themisio-ai-translate").selected_text(label).width(220.0).show_ui(ui, |ui| {
@@ -229,101 +293,111 @@ impl AiSettingsUi {
                     changed = true;
                 }
             });
-            ui.horizontal(|ui| {
-                ui.label(t(lang, "Into"));
+            kit::row_rule(ui);
+            kit::setting_row(ui, t(lang, "Into"), "", |ui| {
                 let name = super::assist::LANGUAGES.iter().find(|(c, _)| *c == s.translate_to).map_or("English", |(_, n)| n);
-                egui::ComboBox::from_id_salt("themisio-ai-translate-to").selected_text(t(lang, name)).show_ui(ui, |ui| {
+                egui::ComboBox::from_id_salt("themisio-ai-translate-to").selected_text(t(lang, name)).width(220.0).show_ui(ui, |ui| {
                     for (code, n) in super::assist::LANGUAGES {
                         changed |= ui.selectable_value(&mut s.translate_to, code.to_string(), t(lang, n)).changed();
                     }
                 });
             });
-            ui.separator();
-
-            // ---------------- Skills ----------------
-            ui.label(RichText::new(t(lang, "Skills")).heading());
-            ui.label(RichText::new(t(lang, "Writing skills are folders with a SKILL.md (as Claude Code uses). Active skills are added to every writing request.")).small().weak());
-            let list = self.skills.get_or_insert_with(|| super::skills::list(&s.skill_dirs)).clone();
-            if list.is_empty() {
-                ui.label(RichText::new(t(lang, "No skills found yet.")).small());
-            }
-            for sk in &list {
-                let mut on = s.active_skills.contains(&sk.name);
-                if ui.checkbox(&mut on, &sk.name).on_hover_text(&sk.description).changed() {
-                    if on {
-                        s.active_skills.push(sk.name.clone());
-                    } else {
-                        s.active_skills.retain(|n| *n != sk.name);
-                    }
-                    changed = true;
-                }
-            }
-            ui.horizontal(|ui| {
-                if ui.button(t(lang, "Open Themisio's skills folder")).clicked()
-                    && let Some(d) = super::skills::own_dir()
-                {
-                    let _ = std::fs::create_dir_all(&d);
-                    crate::shell::open_folder(&d);
-                }
-                if ui.button(t(lang, "Add a skills folder…")).clicked()
-                    && let Some(dir) = rfd::FileDialog::new().pick_folder()
-                {
-                    let d = dir.to_string_lossy().into_owned();
-                    if !s.skill_dirs.contains(&d) {
-                        s.skill_dirs.push(d);
-                        changed = true;
-                    }
-                    self.skills = None;
-                }
-                if ui.button(t(lang, "Refresh")).clicked() {
-                    self.skills = None;
-                }
-            });
-            let mut drop = None;
-            for (i, d) in s.skill_dirs.iter().enumerate() {
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(d).small());
-                    if ui.small_button(t(lang, "Remove")).clicked() {
-                        drop = Some(i);
-                    }
-                });
-            }
-            if let Some(i) = drop {
-                s.skill_dirs.remove(i);
-                self.skills = None;
-                changed = true;
-            }
         });
         changed
     }
 
-    fn provider(&mut self, ui: &mut egui::Ui, s: &mut AiSettings, id: &str, base: &str, key_url: &str, lang: Lang) -> bool {
-        let ctx = ui.ctx().clone();
+    /// Settings › Skills.
+    pub fn skills_page(&mut self, ui: &mut egui::Ui, s: &mut AiSettings, lang: Lang) -> bool {
         let mut changed = false;
-        let mut cfg = s.cfg(id);
-        changed |= ui.checkbox(&mut cfg.enabled, t(lang, "Use this provider")).changed();
-        if id.starts_with("custom") {
+        kit::page_title(ui, t(lang, "Skills"), t(lang, "Writing skills are folders with a SKILL.md (as Claude Code uses). Active skills are added to every writing request."));
+        let list = self.skills.get_or_insert_with(|| super::skills::list(&s.skill_dirs)).clone();
+        kit::card(ui, |ui| {
+            if list.is_empty() {
+                kit::hint(ui, t(lang, "No skills found yet."));
+            }
+            for (i, sk) in list.iter().enumerate() {
+                if i > 0 {
+                    kit::row_rule(ui);
+                }
+                let mut on = s.active_skills.contains(&sk.name);
+                kit::setting_row(ui, &sk.name, &sk.description, |ui| {
+                    if kit::switch(ui, &mut on).changed() {
+                        if on {
+                            s.active_skills.push(sk.name.clone());
+                        } else {
+                            s.active_skills.retain(|n| *n != sk.name);
+                        }
+                        changed = true;
+                    }
+                });
+            }
+        });
+        ui.add_space(10.0);
+        ui.horizontal_wrapped(|ui| {
+            if kit::secondary(ui, t(lang, "Open Themisio's skills folder")).clicked()
+                && let Some(d) = super::skills::own_dir()
+            {
+                let _ = std::fs::create_dir_all(&d);
+                crate::shell::open_folder(&d);
+            }
+            if kit::secondary(ui, t(lang, "Add a skills folder…")).clicked()
+                && let Some(dir) = rfd::FileDialog::new().pick_folder()
+            {
+                let d = dir.to_string_lossy().into_owned();
+                if !s.skill_dirs.contains(&d) {
+                    s.skill_dirs.push(d);
+                    changed = true;
+                }
+                self.skills = None;
+            }
+            if kit::icon_button(ui, Icon::Retry, t(lang, "Refresh")).clicked() {
+                self.skills = None;
+            }
+        });
+        let mut drop = None;
+        for (i, d) in s.skill_dirs.iter().enumerate() {
             ui.horizontal(|ui| {
-                ui.label(t(lang, "Name"));
-                changed |= ui.add(egui::TextEdit::singleline(&mut cfg.name).desired_width(200.0)).changed();
+                ui.label(RichText::new(d).size(12.0));
+                if kit::quiet(ui, t(lang, "Remove")).clicked() {
+                    drop = Some(i);
+                }
             });
         }
+        if let Some(i) = drop {
+            s.skill_dirs.remove(i);
+            self.skills = None;
+            changed = true;
+        }
+        changed
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn provider(&mut self, ui: &mut egui::Ui, s: &AiSettings, cfg: &mut ProviderCfg, id: &str, base: &str, key_url: &str, lang: Lang) -> bool {
+        let ctx = ui.ctx().clone();
+        let mut changed = false;
+        if id.starts_with("custom") {
+            kit::setting_row(ui, t(lang, "Name"), "", |ui| {
+                changed |= ui.add(egui::TextEdit::singleline(&mut cfg.name).desired_width(240.0)).changed();
+            });
+            kit::row_rule(ui);
+        }
         // Key.
-        ui.horizontal(|ui| {
-            ui.label(t(lang, "API key"));
+        let keyless = id == "llamacpp" || id.starts_with("custom");
+        kit::setting_row(ui, t(lang, "API key"), if keyless { t(lang, "Optional for this provider.") } else { "" }, |ui| {
             if self.key_saved(id) && !self.key_edit.contains_key(id) {
-                ui.colored_label(green(), t(lang, "Saved"));
-                if ui.small_button(t(lang, "Change")).clicked() {
-                    self.key_edit.insert(id.into(), String::new());
-                }
-                if ui.small_button(t(lang, "Remove")).clicked() {
+                if kit::quiet(ui, t(lang, "Remove")).clicked() {
                     let _ = keys::set(id, "");
                     self.has_key.insert(id.into(), false);
                 }
+                if kit::secondary(ui, t(lang, "Change")).clicked() {
+                    self.key_edit.insert(id.into(), String::new());
+                }
+                kit::status(ui, kit::GREEN, t(lang, "Saved"));
             } else {
                 let e = self.key_edit.entry(id.into()).or_default();
-                ui.add(egui::TextEdit::singleline(e).password(true).hint_text(if id == "llamacpp" || id.starts_with("custom") { t(lang, "optional") } else { "" }).desired_width(220.0));
-                if ui.small_button(t(lang, "Save")).clicked() {
+                let save = kit::primary(ui, t(lang, "Save")).clicked();
+                ui.add(egui::TextEdit::singleline(e).password(true).hint_text(t(lang, "Paste the key")).desired_width(200.0));
+                if save {
                     match keys::set(id, e) {
                         Ok(()) => {
                             let saved = !e.trim().is_empty();
@@ -340,21 +414,25 @@ impl AiSettingsUi {
                     }
                 }
             }
-            if !key_url.is_empty() {
-                ui.hyperlink_to(t(lang, "Get a key"), key_url);
-            }
         });
-        // Address.
-        ui.horizontal(|ui| {
-            ui.label(t(lang, "Address"));
-            changed |= ui.add(egui::TextEdit::singleline(&mut cfg.base_url).hint_text(base).desired_width(300.0)).changed();
+        if !key_url.is_empty() {
+            ui.horizontal(|ui| {
+                ui.add_space(2.0);
+                ui.hyperlink_to(RichText::new(t(lang, "Get a key")).size(12.0), key_url);
+            });
+        }
+        kit::row_rule(ui);
+        kit::setting_row(ui, t(lang, "Address"), "", |ui| {
+            changed |= ui.add(egui::TextEdit::singleline(&mut cfg.base_url).hint_text(base).desired_width(260.0)).changed();
         });
-        // Models.
-        ui.label(t(lang, "Models"));
+        kit::row_rule(ui);
+        ui.label(RichText::new(t(lang, "Models")).size(13.0));
+        ui.add_space(2.0);
         ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
             let mut drop = None;
             for (i, m) in cfg.models.iter().enumerate() {
-                if ui.small_button(format!("{m}  ×")).on_hover_text(t(lang, "Remove")).clicked() {
+                if kit::chip_removable(ui, m) {
                     drop = Some(i);
                 }
             }
@@ -362,11 +440,16 @@ impl AiSettingsUi {
                 cfg.models.remove(i);
                 changed = true;
             }
+            if cfg.models.is_empty() {
+                kit::hint(ui, t(lang, "No models yet — load the provider's list or add one by id."));
+            }
         });
+        ui.add_space(4.0);
         ui.horizontal(|ui| {
             let e = self.model_edit.entry(id.into()).or_default();
-            ui.add(egui::TextEdit::singleline(e).hint_text(t(lang, "model id")).desired_width(180.0));
-            if ui.small_button(t(lang, "Add")).clicked() && !e.trim().is_empty() {
+            let resp = ui.add(egui::TextEdit::singleline(e).hint_text(t(lang, "model id")).desired_width(170.0));
+            let enter = resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            if (kit::secondary(ui, t(lang, "Add")).clicked() || enter) && !e.trim().is_empty() {
                 if !cfg.models.contains(&e.trim().to_string()) {
                     cfg.models.push(e.trim().to_string());
                     changed = true;
@@ -374,21 +457,23 @@ impl AiSettingsUi {
                 e.clear();
             }
             let loading = self.models_job.as_ref().is_some_and(|(p, _)| p == id);
-            if ui.add_enabled(!loading, egui::Button::new(t(lang, "Load the provider's models")).small()).clicked() {
+            if loading {
+                ui.spinner();
+            } else if kit::secondary(ui, t(lang, "Load models")).clicked() {
                 let mut probe = s.clone();
                 probe.providers.insert(id.into(), cfg.clone());
                 if let Some(ep) = probe.endpoint(id) {
                     self.models_job = Some((id.into(), Job::spawn(&ctx, move |_| super::list_models(&ep))));
                 }
             }
-            if loading {
-                ui.spinner();
-            }
             let testing = self.test_job.as_ref().is_some_and(|(p, _)| p == id);
-            if ui.add_enabled(!testing && !cfg.models.is_empty(), egui::Button::new(t(lang, "Test")).small()).clicked() {
+            if testing {
+                ui.spinner();
+            } else if ui.add_enabled_ui(!cfg.models.is_empty(), |ui| kit::secondary(ui, t(lang, "Test"))).inner.clicked() {
                 let mut probe = s.clone();
-                cfg.enabled = true;
-                probe.providers.insert(id.into(), cfg.clone());
+                let mut c = cfg.clone();
+                c.enabled = true;
+                probe.providers.insert(id.into(), c);
                 let req = Request {
                     model: format!("{id}|{}", cfg.models[0]),
                     system: String::new(),
@@ -398,11 +483,10 @@ impl AiSettingsUi {
                 };
                 self.test_job = Some((id.into(), Job::spawn(&ctx, move |c| super::complete(&probe, &req, c))));
             }
-            if testing {
-                ui.spinner();
-            }
         });
         if let Some(list) = self.fetched.get(id).cloned() {
+            ui.add_space(4.0);
+            kit::hint(ui, t(lang, "Tick the models to use:"));
             egui::ScrollArea::vertical().id_salt(("fetched", id)).max_height(160.0).show(ui, |ui| {
                 for m in list {
                     let mut on = cfg.models.contains(&m);
@@ -418,16 +502,15 @@ impl AiSettingsUi {
             });
         }
         if let Some((ok, text)) = self.results.get(id) {
-            ui.colored_label(if *ok { green() } else { red() }, text);
-        }
-        if changed || s.providers.get(id) != Some(&cfg) {
-            s.providers.insert(id.into(), cfg);
-            changed = true;
+            ui.add_space(4.0);
+            kit::notice(ui, if *ok { kit::GREEN } else { kit::RED }, if *ok { Icon::Check } else { Icon::Cross }, |ui| {
+                ui.add(egui::Label::new(RichText::new(text).size(12.0)).wrap());
+            });
         }
         changed
     }
 
-    fn poll(&mut self, _ctx: &egui::Context, _s: &mut AiSettings, _changed: &mut bool) {
+    fn poll(&mut self) {
         if let Some((id, job)) = &self.models_job
             && let Some(r) = job.take()
         {
@@ -450,10 +533,13 @@ impl AiSettingsUi {
             && let Some(r) = job.take()
         {
             let id = id.clone();
-            self.results.insert(id, match r {
-                Ok(text) => (true, format!("✓ {}", text.chars().take(80).collect::<String>())),
-                Err(e) => (false, e),
-            });
+            self.results.insert(
+                id,
+                match r {
+                    Ok(text) => (true, format!("OK — {}", text.chars().take(80).collect::<String>())),
+                    Err(e) => (false, e),
+                },
+            );
             self.test_job = None;
         }
         if let Some(job) = &self.cc_job
@@ -473,7 +559,7 @@ fn model_combo(ui: &mut egui::Ui, id: &str, s: &AiSettings, value: &mut String, 
     } else {
         s.label(value)
     };
-    egui::ComboBox::from_id_salt(("themisio", id)).selected_text(label).width(240.0).show_ui(ui, |ui| {
+    egui::ComboBox::from_id_salt(("themisio", id)).selected_text(label).width(220.0).show_ui(ui, |ui| {
         ui.selectable_value(value, String::new(), if same_as { t(lang, "Same as the writing assistant") } else { t(lang, "First available") });
         for (group, models) in s.choices() {
             ui.label(RichText::new(group).small().weak());
@@ -482,8 +568,5 @@ fn model_combo(ui: &mut egui::Ui, id: &str, s: &AiSettings, value: &mut String, 
             }
         }
     });
-    if s.choices().is_empty() {
-        ui.label(RichText::new(tf(lang, "Turn on a provider above, or {cc}.", &[("cc", "Claude Code")])).small().weak());
-    }
     (*value != before).then(|| value.clone())
 }

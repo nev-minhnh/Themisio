@@ -138,6 +138,14 @@ pub fn ui_font(ctx: &Context, size: f32) -> egui::FontId {
     egui::FontId::new(size, if has { name } else { FontFamily::Proportional })
 }
 
+/// Inter SemiBold for bold text in the shell (headings, **bold** in AI answers), falling back to
+/// the interface family until the fonts have it.
+pub fn bold_font(ctx: &Context, size: f32) -> egui::FontId {
+    let name = FontFamily::Name(SEMIBOLD.into());
+    let has = ctx.fonts(|f| f.families().contains(&name));
+    if has { egui::FontId::new(size, name) } else { ui_font(ctx, size) }
+}
+
 /// Make sure the context's fonts have Themisio's interface family ([`UI_FAMILY`]) and, in
 /// Vietnamese (`vietnamese`), can draw Vietnamese anywhere: Inter (which covers it) is added to
 /// every family as a fallback, so translated strings never show missing-glyph boxes, whatever
@@ -152,6 +160,20 @@ pub fn ensure_fonts(ctx: &Context, vietnamese: bool, primary: bool) {
             INTER.into(),
             Arc::new(FontData::from_static(include_bytes!("../../../upstream/pdfcraft/assets/fonts/Inter-Regular.ttf"))),
         );
+        changed = true;
+    }
+    if !defs.font_data.contains_key(SEMIBOLD) {
+        defs.font_data.insert(
+            SEMIBOLD.into(),
+            Arc::new(FontData::from_static(include_bytes!("../../../upstream/pdfcraft/assets/fonts/Inter-SemiBold.ttf"))),
+        );
+        changed = true;
+    }
+    let semibold = FontFamily::Name(SEMIBOLD.into());
+    if !defs.families.contains_key(&semibold) {
+        let mut list = vec![SEMIBOLD.to_string()];
+        list.extend(ui_family_list());
+        defs.families.insert(semibold, list);
         changed = true;
     }
     let ui = FontFamily::Name(UI_FAMILY.into());

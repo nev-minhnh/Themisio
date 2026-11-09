@@ -277,62 +277,89 @@ impl Host for GridHost {
         self.app.run("cell.set", serde_json::json!({"cell": cell, "input": new})).map(|_| ()).map_err(|e| e.to_string())
     }
 
+    fn ai_revision(&mut self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        if let Some(d) = self.app.session.active() {
+            d.revision.hash(&mut h);
+            d.path.hash(&mut h);
+            d.wb.active().map(|s| s.name.clone()).hash(&mut h);
+        }
+        h.finish()
+    }
+
+    fn ai_units(&mut self) -> Vec<(serde_json::Value, String)> {
+        // Only the top of a large sheet: reading every cell of a big import on each edit would
+        // stall the window.
+        let used = self.app.session.active().and_then(|d| d.wb.active().and_then(|s| s.used_range()));
+        let Some(used) = used else { return Vec::new() };
+        let (c0, r0) = a1_start(&used.a1());
+        let (c1, r1) = used.a1().split(':').nth(1).map(a1_start).unwrap_or((c0, r0));
+        let range = format!("{}{}:{}{}", col_letters(c0), r0, col_letters(c1.min(c0 + 199)), r1.min(r0 + 1999));
+        let Ok(v) = self.app.run("sheet.read", serde_json::json!({"range": range})) else { return Vec::new() };
+        let Some(range) = v["range"].as_str() else { return Vec::new() };
+        let (col0, row0) = a1_start(range);
+        let mut out = Vec::new();
+        for (r, row) in v["values"].as_array().into_iter().flatten().enumerate().take(2000) {
+            for (c, cell) in row.as_array().into_iter().flatten().enumerate().take(200) {
+                if let Some(text) = cell.as_str()
+                    && (text.split_whitespace().count() >= 2 || text.chars().count() >= 12)
+                    && !text.starts_with('=')
+                {
+                    out.push((serde_json::json!({"cell": format!("{}{}", col_letters(col0 + c as u32), row0 + r as u32)}), text.to_string()));
+                }
+                if out.len() >= 400 {
+                    return out;
+                }
+            }
+        }
+        out
+    }
+
+    fn ai_apply(&mut self, key: &serde_json::Value, original: &str, replacement: &str) -> Result<(), String> {
+        let target = super::AiTarget { text: original.into(), selection: false, anchor: key.clone(), screen: None };
+        self.ai_replace(&target, original, replacement)
+    }
+
+    fn ai_focus(&mut self, key: &serde_json::Value, _original: &str) {
+        if let Some(cell) = key["cell"].as_str() {
+            let _ = self.app.run("selection.set", serde_json::json!({"range": cell}));
+        }
+    }
+
     fn ai_replace_all(&mut self, target: &super::AiTarget, text: &str) -> Result<(), String> {
         let cell = target.anchor["cell"].as_str().ok_or("no cell")?;
         self.app.run("cell.set", serde_json::json!({"cell": cell, "input": text})).map(|_| ()).map_err(|e| e.to_string())
     }
 
     fn sheet_context(&mut self) -> Option<String> {
-        const ROWS: usize = 200;
-        const COLS: usize = 30;
-        let (title, sheets, active, selection) = {
+        let (title, sheets, active, selection, used) = {
             let d = self.app.session.active()?;
             let names: Vec<String> = d.wb.sheets.iter().map(|s| s.name.clone()).collect();
-            let active = d.wb.active().map(|s| s.name.clone()).unwrap_or_default();
+            let sheet = d.wb.active();
+            let active = sheet.map(|s| s.name.clone()).unwrap_or_default();
+            let used = sheet.and_then(|s| s.used_range()).map(|r| r.a1());
             let sel: Vec<String> = d.selection.ranges.iter().map(|r| r.a1()).collect();
             let title = d.path.as_deref().map(|p| p.rsplit(['/', '\\']).next().unwrap_or(p).to_string()).unwrap_or_else(|| "Untitled workbook".into());
-            (title, names, active, sel.join(", "))
+            (title, names, active, sel.join(", "), used)
         };
-        let mut out = format!("Workbook: {title}\nSheets: {}\nActive sheet: {active}\nSelection: {selection}\n", sheets.join(", "));
-        let table = |v: &serde_json::Value| -> String {
-            let mut s = String::new();
-            for row in v["values"].as_array().into_iter().flatten().take(ROWS) {
-                let cells: Vec<String> = row
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .take(COLS)
-                    .map(|c| match c {
-                        serde_json::Value::Null => String::new(),
-                        serde_json::Value::String(t) => t.replace(['\t', '\n'], " "),
-                        other => other.to_string(),
-                    })
-                    .collect();
-                s.push_str(&cells.join("\t"));
-                s.push('\n');
+        let app = &mut self.app;
+        let mut read = |range: &str, formatted: bool, formulas: bool| -> Result<serde_json::Value, String> {
+            let mut p = serde_json::json!({"formatted": formatted, "formulas": formulas});
+            if !range.is_empty() {
+                p["range"] = serde_json::json!(range);
             }
-            s
+            app.run("sheet.read", p).map_err(|e| e.to_string())
         };
-        let multi = selection.contains(':');
-        if multi
-            && let Ok(v) = self.app.run("sheet.read", serde_json::json!({"range": selection.split(", ").last().unwrap_or("")}))
-        {
-            out.push_str(&format!("\nThe selection ({}) as tab-separated values:\n{}", v["range"].as_str().unwrap_or(""), table(&v)));
-        }
-        match self.app.run("sheet.read", serde_json::json!({})) {
-            Ok(v) if v["range"].is_string() => {
-                let rows = v["values"].as_array().map_or(0, Vec::len);
-                out.push_str(&format!(
-                    "\nThe active sheet's used range {} ({rows} rows{}), tab-separated, first row = row {} of the sheet:\n{}",
-                    v["range"].as_str().unwrap_or(""),
-                    if rows > ROWS { format!(", first {ROWS} shown") } else { String::new() },
-                    v["range"].as_str().and_then(|r| r.trim_start_matches(|c: char| c.is_ascii_alphabetic()).split(':').next()).unwrap_or("1"),
-                    table(&v)
-                ));
-            }
-            _ => out.push_str("\nThe active sheet is empty.\n"),
-        }
-        Some(out)
+        Some(super::sheet_context::describe(&mut read, &title, &sheets, &active, &selection, used))
+    }
+
+    fn sheet_errors(&mut self, ranges: &[String]) -> Vec<(String, String, String)> {
+        let app = &mut self.app;
+        let mut read = |range: &str, formatted: bool, formulas: bool| -> Result<serde_json::Value, String> {
+            app.run("sheet.read", serde_json::json!({"range": range, "formatted": formatted, "formulas": formulas})).map_err(|e| e.to_string())
+        };
+        super::sheet_context::errors_in(&mut read, ranges)
     }
 
     fn command_docs(&mut self, ids: &[&str]) -> String {
@@ -363,5 +390,39 @@ impl Host for GridHost {
     fn on_exit(&mut self) {
         print::finish_pending_jobs();
         save_prefs(&self.app);
+    }
+}
+
+/// The first cell of an A1 range ("B3:D9" → column 2, row 3; columns from 1).
+fn a1_start(range: &str) -> (u32, u32) {
+    let first = range.split(':').next().unwrap_or("A1").replace('$', "");
+    let letters: String = first.chars().take_while(|c| c.is_ascii_alphabetic()).collect();
+    let digits: String = first.chars().skip_while(|c| c.is_ascii_alphabetic()).collect();
+    let col = letters.to_ascii_uppercase().bytes().fold(0u32, |n, b| n.saturating_mul(26).saturating_add(u32::from(b - b'A' + 1)));
+    (col.max(1), digits.parse().unwrap_or(1).max(1))
+}
+
+/// Column 1 → "A", 27 → "AA".
+fn col_letters(mut col: u32) -> String {
+    let mut s = Vec::new();
+    while col > 0 {
+        let r = ((col - 1) % 26) as u8;
+        s.push(b'A' + r);
+        col = (col - 1) / 26;
+    }
+    s.reverse();
+    String::from_utf8(s).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a1_addresses_round_trip() {
+        assert_eq!(a1_start("B3:D9"), (2, 3));
+        assert_eq!(a1_start("$AA$10"), (27, 10));
+        assert_eq!(col_letters(1), "A");
+        assert_eq!(col_letters(28), "AB");
     }
 }

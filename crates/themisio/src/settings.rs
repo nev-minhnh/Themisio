@@ -35,7 +35,7 @@ impl Smoothness {
 /// Whether the shell animates.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Motion {
-    /// Follow Settings ▸ Accessibility ▸ Visual effects ▸ Animation effects.
+    /// Follow Settings › Accessibility › Visual effects › Animation effects.
     #[default]
     System,
     On,
@@ -55,7 +55,7 @@ pub enum Presentation {
 /// Light or dark, for Themisio and every app in it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ThemePref {
-    /// Follow Windows' app mode (Settings ▸ Personalisation ▸ Colours).
+    /// Follow Windows' app mode (Settings › Personalisation › Colours).
     #[default]
     System,
     Light,

@@ -1,6 +1,6 @@
 //! Windows file associations, per user (`HKCU\Software\Classes`, no administrator rights): one
 //! ProgID per kind of file, Open With entries for every extension the apps open, and the
-//! Capabilities that list Themisio in Settings ▸ Apps ▸ Default apps. Windows doesn't let an app
+//! Capabilities that list Themisio in Settings › Apps › Default apps. Windows doesn't let an app
 //! make itself the default; the user confirms there.
 
 use crate::app_kind::AppKind;
@@ -99,7 +99,7 @@ pub fn unregister() -> Result<(), String> {
     Ok(())
 }
 
-/// Settings ▸ Apps ▸ Default apps, on Themisio's page.
+/// Settings › Apps › Default apps, on Themisio's page.
 pub fn open_default_apps() {
     #[cfg(windows)]
     if let Err(e) = open::that_detached("ms-settings:defaultapps?registeredAppUser=Themisio") {
@@ -107,7 +107,7 @@ pub fn open_default_apps() {
     }
 }
 
-/// WordCraft's File ▸ Options "make the default" button, pointed at Themisio.
+/// WordCraft's File › Options "make the default" button, pointed at Themisio.
 pub fn default_app_hook() -> Option<Box<dyn Fn() -> Result<wordcraft_ui_egui::DefaultApp, String>>> {
     if cfg!(windows) {
         Some(Box::new(|| {

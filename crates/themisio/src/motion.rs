@@ -43,7 +43,7 @@ impl MotionState {
     }
 }
 
-/// Settings ▸ Accessibility ▸ Visual effects ▸ Animation effects is off.
+/// Settings › Accessibility › Visual effects › Animation effects is off.
 #[cfg(windows)]
 pub fn system_reduced() -> bool {
     windows::UI::ViewManagement::UISettings::new().and_then(|s| s.AnimationsEnabled()).map(|on| !on).unwrap_or(false)

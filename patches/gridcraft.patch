@@ -1,3 +1,73 @@
+diff --git a/crates/model/src/store.rs b/crates/model/src/store.rs
+index be52bbe..fada3bc 100644
+--- a/crates/model/src/store.rs
++++ b/crates/model/src/store.rs
+@@ -17,10 +17,33 @@ fn has_value(cell: &Cell) -> bool {
+     cell.has_content()
+ }
+ 
+-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
++#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+ struct Band {
+     /// row → (col → cell)
+     rows: BTreeMap<u32, BTreeMap<u32, Cell>>,
++    /// The band's first and last column, worked out once after each change.
++    #[serde(skip)]
++    cols: std::sync::OnceLock<Option<(u32, u32)>>,
++}
++
++impl PartialEq for Band {
++    fn eq(&self, other: &Self) -> bool {
++        self.rows == other.rows
++    }
++}
++
++impl Band {
++    fn col_bounds(&self) -> Option<(u32, u32)> {
++        *self.cols.get_or_init(|| {
++            let mut out: Option<(u32, u32)> = None;
++            for cols in self.rows.values() {
++                if let (Some(a), Some(b)) = (cols.keys().next(), cols.keys().next_back()) {
++                    out = Some(out.map_or((*a, *b), |(x, y)| (x.min(*a), y.max(*b))));
++                }
++            }
++            out
++        })
++    }
+ }
+ 
+ #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+@@ -57,6 +80,7 @@ impl CellStore {
+             return;
+         }
+         let band = Arc::make_mut(self.bands.entry(c.row / BAND).or_default());
++        band.cols = std::sync::OnceLock::new();
+         if band.rows.entry(c.row).or_default().insert(c.col, cell).is_none() {
+             self.len += 1;
+         }
+@@ -90,6 +114,7 @@ impl CellStore {
+             return None;
+         }
+         let b = Arc::make_mut(band);
++        b.cols = std::sync::OnceLock::new();
+         let row = b.rows.get_mut(&c.row)?;
+         let old = row.remove(&c.col);
+         if row.is_empty() {
+@@ -130,11 +155,9 @@ impl CellStore {
+         let mut c0 = u32::MAX;
+         let mut c1 = 0;
+         for band in self.bands.values() {
+-            for cols in band.rows.values() {
+-                if let (Some(a), Some(b)) = (cols.keys().next(), cols.keys().next_back()) {
+-                    c0 = c0.min(*a);
+-                    c1 = c1.max(*b);
+-                }
++            if let Some((a, b)) = band.col_bounds() {
++                c0 = c0.min(a);
++                c1 = c1.max(b);
+             }
+         }
+         if c0 == u32::MAX {
 diff --git a/crates/ui-egui/src/dialogs/about.rs b/crates/ui-egui/src/dialogs/about.rs
 index a95878e..2fe743e 100644
 --- a/crates/ui-egui/src/dialogs/about.rs
@@ -59,3 +129,34 @@ index f254665..6fa2218 100644
      let __k = big_button(ui, Icon::Script, "About\nGridCraft", "Version, contributors and the AI models that helped", false);
      control_keytip(app, ui, &__k, "about");
      if __k.clicked() {
+diff --git a/crates/ui-egui/src/tabs.rs b/crates/ui-egui/src/tabs.rs
+index ea11615..fd52a9b 100644
+--- a/crates/ui-egui/src/tabs.rs
++++ b/crates/ui-egui/src/tabs.rs
+@@ -471,6 +471,18 @@ pub(crate) fn selection_statistics(app: &SheetApp) -> Vec<String> {
+         return vec![];
+     }
+     let on = app.session.prefs.status_bar;
++    thread_local! {
++        static THEMISIO_STATS: std::cell::RefCell<Option<(u64, Vec<String>)>> = const { std::cell::RefCell::new(None) };
++    }
++    let key = {
++        use std::hash::{Hash, Hasher};
++        let mut h = std::collections::hash_map::DefaultHasher::new();
++        (d.uid, d.revision, &sh.name, format!("{:?}{:?}{on:?}", d.selection.ranges, d.selection.active)).hash(&mut h);
++        h.finish()
++    };
++    if let Some(parts) = THEMISIO_STATS.with(|c| c.borrow().as_ref().filter(|(k, _)| *k == key).map(|(_, p)| p.clone())) {
++        return parts;
++    }
+     let st = gridcraft_engine::display::stats(sh, &d.selection.ranges);
+     let fmt = |v: f64| {
+         let code = d.wb.styles.get(sh.style_id(d.selection.active)).num_fmt.as_str().to_string();
+@@ -498,6 +510,7 @@ pub(crate) fn selection_statistics(app: &SheetApp) -> Vec<String> {
+     if on.sum && st.numeric > 0 {
+         parts.push(format!("Sum: {}", fmt(st.sum)));
+     }
++    THEMISIO_STATS.with(|c| *c.borrow_mut() = Some((key, parts.clone())));
+     parts
+ }
+ 

@@ -12,6 +12,7 @@ use crate::route::Intent;
 pub mod deck;
 pub mod grid;
 pub mod pdf;
+pub mod sheet_context;
 pub mod word;
 
 // Each app's desktop helpers (its `apps/<app>/src` modules), compiled in unchanged. An inline
@@ -80,7 +81,7 @@ pub trait Host {
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput);
     /// Open a file the way the app's own command line / Explorer double-click would.
     fn open(&mut self, ctx: &egui::Context, path: &Path, intent: Intent);
-    /// A new blank document (File ▸ New ▸ Blank).
+    /// A new blank document (File › New › Blank).
     fn new_document(&mut self, ctx: &egui::Context);
     /// The app's own start screen, where it has one (WordCraft's templates and recent files).
     fn show_start_screen(&mut self) {}
@@ -94,7 +95,7 @@ pub trait Host {
     }
     /// Show document `id` (a tab was clicked).
     fn activate_tab(&mut self, _id: u64) {}
-    /// Close document `id`, asking about unsaved changes as the app's File ▸ Close does.
+    /// Close document `id`, asking about unsaved changes as the app's File › Close does.
     fn close_tab(&mut self, _id: u64) {}
     /// Messages the app has put up since the last call (its toasts and status messages), for
     /// Themisio's notifications. The app's own toast is taken, so the message shows once.
@@ -115,6 +116,34 @@ pub trait Host {
     fn ai_replace_all(&mut self, target: &AiTarget, text: &str) -> Result<(), String> {
         self.ai_replace(target, &target.text, text)
     }
+    /// A number that changes whenever the text the writing assistant reads may have changed.
+    fn ai_revision(&mut self) -> u64 {
+        0
+    }
+    /// Every piece of text the writing assistant checks (paragraphs, text boxes, cells), each
+    /// with a key the app understands.
+    fn ai_units(&mut self) -> Vec<(serde_json::Value, String)> {
+        Vec::new()
+    }
+    /// Where `original` in unit `key` is on screen, line by line (for underlines). Empty when
+    /// the app can't say (the panel still lists the suggestion).
+    fn ai_marks(&mut self, _key: &serde_json::Value, _original: &str) -> Vec<egui::Rect> {
+        Vec::new()
+    }
+    /// The area the document is drawn in (underlines are clipped to it).
+    fn ai_viewport(&mut self) -> Option<egui::Rect> {
+        None
+    }
+    /// Replace `original` in unit `key` with `replacement` (an edit that can be undone).
+    fn ai_apply(&mut self, _key: &serde_json::Value, _original: &str, _replacement: &str) -> Result<(), String> {
+        Err("not available here".into())
+    }
+    /// Show `original` in unit `key` (select it).
+    fn ai_focus(&mut self, _key: &serde_json::Value, _original: &str) {}
+    /// Insert `text` at the cursor (after the selection).
+    fn ai_insert(&mut self, _text: &str) -> Result<(), String> {
+        Err("Put the cursor where the text should go first.".into())
+    }
     /// CalcSheet: the workbook as the assistant sees it (sheets, selection, the data).
     fn sheet_context(&mut self) -> Option<String> {
         None
@@ -122,6 +151,10 @@ pub trait Host {
     /// CalcSheet: the parameters of these commands, one line each.
     fn command_docs(&mut self, _ids: &[&str]) -> String {
         String::new()
+    }
+    /// CalcSheet: error values (cell, error, formula) in these ranges, after actions ran.
+    fn sheet_errors(&mut self, _ranges: &[String]) -> Vec<(String, String, String)> {
+        Vec::new()
     }
     /// Run one of the app's commands with parameters (an action the user allowed).
     fn run_json(&mut self, _id: &str, _params: serde_json::Value) -> Result<serde_json::Value, String> {

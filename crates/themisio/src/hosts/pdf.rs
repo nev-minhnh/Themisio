@@ -75,7 +75,7 @@ impl Host for PdfHost {
 
     fn open(&mut self, _ctx: &egui::Context, path: &Path, _intent: Intent) {
         // `open_path` opens PDFs and form data, and turns pictures and text into a new PDF
-        // (Create ▸ From file) as PdfCraft's Open does.
+        // (Create › From file) as PdfCraft's Open does.
         let _ = self.app.open_path(&path_text(path));
     }
 

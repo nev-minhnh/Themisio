@@ -19,9 +19,11 @@ use crate::i18n::{Lang, t, tf};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
+    /// Check the document (handled by the writing assistant's panel).
     Check,
     Ask,
     Translate,
+    Define,
 }
 
 /// A request from a right-click menu, picked up on the next pass.
@@ -44,7 +46,7 @@ pub fn take_request() -> Option<Mode> {
 pub fn install_menu_hook() {
     egui::themisio::set_context_menu_hook(Some(Arc::new(|ui: &mut egui::Ui| {
         let lang = if VIETNAMESE.load(Ordering::Relaxed) { Lang::Vi } else { Lang::En };
-        let mut items = vec![(Mode::Translate, t(lang, "Translate"), "Ctrl+Alt+T")];
+        let mut items = vec![(Mode::Translate, t(lang, "Translate"), "Ctrl+Alt+T"), (Mode::Define, t(lang, "Look up meaning"), "Ctrl+Alt+D")];
         if WRITING_ON.load(Ordering::Relaxed) {
             items.insert(0, (Mode::Ask, t(lang, "Ask AI…"), "Ctrl+Alt+K"));
             items.insert(0, (Mode::Check, t(lang, "Check writing with AI"), "Ctrl+Alt+G"));
@@ -76,9 +78,6 @@ pub struct Suggestion {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum State {
     Open,
-    Applied,
-    Dismissed,
-    Failed,
 }
 
 enum Outcome {
@@ -89,23 +88,10 @@ enum Outcome {
 
 /// What the shell does to the document for the popup.
 pub enum Act {
-    /// Apply suggestion `i` of the open target.
-    Apply(usize),
     /// Replace the whole target with the text.
     Replace(String),
     /// Copy to the clipboard.
     Copy(String),
-}
-
-#[derive(Default)]
-struct Auto {
-    seen: u64,
-    changed_at: f64,
-    checked: u64,
-    next_poll: f64,
-    job: Option<Job<Vec<Suggestion>>>,
-    job_for: Option<(AppKind, AiTarget)>,
-    found: Option<(AppKind, AiTarget, Vec<Suggestion>)>,
 }
 
 pub struct Assist {
@@ -127,7 +113,6 @@ pub struct Assist {
     request: String,
     skills: Vec<String>,
     skill_list: Option<Vec<super::skills::Skill>>,
-    auto: Auto,
 }
 
 impl Default for Assist {
@@ -151,7 +136,6 @@ impl Default for Assist {
             request: String::new(),
             skills: Vec::new(),
             skill_list: None,
-            auto: Auto::default(),
         }
     }
 }
@@ -178,13 +162,6 @@ pub const LANGUAGES: &[(&str, &str)] = &[
 
 fn lang_name(code: &str) -> &'static str {
     LANGUAGES.iter().find(|(c, _)| *c == code).map_or("English", |(_, n)| n)
-}
-
-fn hash(s: &str) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    s.hash(&mut h);
-    h.finish()
 }
 
 /// The system prompt for a writing check.
@@ -258,23 +235,9 @@ impl Assist {
         if self.skills.is_empty() {
             self.skills = s.active_skills.clone();
         }
-        if mode != Mode::Ask {
+        if matches!(mode, Mode::Translate | Mode::Define) {
             self.start(ctx, s, lang);
         }
-    }
-
-    /// Open on what auto-check found.
-    fn open_found(&mut self, kind: AppKind, target: AiTarget, list: Vec<Suggestion>, pos: Pos2) {
-        self.open = true;
-        self.kind = Some(kind);
-        self.pos = target.screen.unwrap_or(pos);
-        self.target = Some(target);
-        self.mode = Mode::Check;
-        self.job = None;
-        self.suggestions = list;
-        self.answer = None;
-        self.note = None;
-        self.error = None;
     }
 
     pub fn close(&mut self) {
@@ -295,7 +258,7 @@ impl Assist {
                     return;
                 }
                 if self.model.is_empty() {
-                    self.error = Some(t(lang, "Sign in to an AI provider in Settings ▸ AI first.").into());
+                    self.error = Some(t(lang, "Sign in to an AI provider in Settings › AI first.").into());
                     return;
                 }
                 self.suggestions.clear();
@@ -306,6 +269,7 @@ impl Assist {
                     effort: self.effort.clone(),
                     thinking: self.thinking,
                     max_tokens: 0,
+                    web: false,
                 };
                 self.job = Some(Job::spawn(ctx, move |c| {
                     let out = super::complete(&settings, &req, c)?;
@@ -317,7 +281,7 @@ impl Assist {
                     return;
                 }
                 if self.model.is_empty() {
-                    self.error = Some(t(lang, "Sign in to an AI provider in Settings ▸ AI first.").into());
+                    self.error = Some(t(lang, "Sign in to an AI provider in Settings › AI first.").into());
                     return;
                 }
                 let mut system = String::from(
@@ -334,8 +298,41 @@ impl Assist {
                 } else {
                     format!("Request: {}\n\nText:\n<<<\n{text}\n>>>", self.request.trim())
                 };
-                let req = Request { model: self.model.clone(), system, messages: vec![("user".into(), prompt)], effort: self.effort.clone(), thinking: self.thinking, max_tokens: 0 };
+                let req = Request { model: self.model.clone(), system, messages: vec![("user".into(), prompt)], effort: self.effort.clone(), thinking: self.thinking, max_tokens: 0, web: false };
                 self.job = Some(Job::spawn(ctx, move |c| super::complete(&settings, &req, c).map(Outcome::Text)));
+            }
+            Mode::Define => {
+                let word = text.trim().to_string();
+                if word.is_empty() {
+                    self.error = Some(t(lang, "Select a word or a phrase.").into());
+                    return;
+                }
+                let model = self.model.clone();
+                let effort = self.effort.clone();
+                let ui_lang = if lang == Lang::Vi { "Vietnamese" } else { "English" };
+                let context = self.target.as_ref().map(|t| t.text.clone()).unwrap_or_default();
+                self.job = Some(Job::spawn(ctx, move |c| {
+                    let english = word.chars().all(|ch| ch.is_ascii_alphabetic() || ch == '-' || ch == '\'');
+                    if english && let Ok(entry) = super::define_english(&word) {
+                        return Ok(Outcome::Translation(entry, "dictionaryapi.dev".into()));
+                    }
+                    if model.is_empty() {
+                        return Err("No dictionary entry — sign in to an AI provider to look up any word.".into());
+                    }
+                    let req = Request {
+                        model,
+                        system: format!(
+                            "You are a concise dictionary. Explain the meaning of the word or phrase the user gives, as used in its context. \
+                             Answer in {ui_lang}: the meaning(s) with part of speech, pronunciation if useful, 2–5 synonyms, and one short example. Plain text."
+                        ),
+                        messages: vec![("user".into(), format!("Word or phrase: {word}\nContext: {context}"))],
+                        effort,
+                        thinking: false,
+                        max_tokens: 0,
+                        web: false,
+                    };
+                    super::complete(&settings, &req, c).map(|t| Outcome::Translation(t, String::new()))
+                }));
             }
             Mode::Translate => {
                 if text.trim().is_empty() {
@@ -373,17 +370,11 @@ impl Assist {
                         effort: self.effort.clone(),
                         thinking: self.thinking,
                         max_tokens: 0,
+                        web: false,
                     };
                     self.job = Some(Job::spawn(ctx, move |c| super::complete(&settings, &req, c).map(|t| Outcome::Translation(t, String::new()))));
                 }
             }
-        }
-    }
-
-    /// Mark suggestion `i` after the shell tried it.
-    pub fn applied(&mut self, i: usize, ok: bool) {
-        if let Some(s) = self.suggestions.get_mut(i) {
-            s.state = if ok { State::Applied } else { State::Failed };
         }
     }
 
@@ -392,7 +383,7 @@ impl Assist {
     pub fn ui(&mut self, ctx: &egui::Context, app_rect: Rect, s: &AiSettings, lang: Lang, style: &Arc<egui::Style>) -> (Vec<Act>, bool) {
         let mut acts = Vec::new();
         let mut changed = false;
-        self.badge(ctx, app_rect, lang, style);
+        let _ = app_rect;
         if !self.open {
             return (acts, changed);
         }
@@ -410,7 +401,9 @@ impl Assist {
                 Ok(Outcome::Text(text)) => self.answer = Some(text),
                 Ok(Outcome::Translation(text, from)) => {
                     self.answer = Some(text);
-                    if !from.is_empty() {
+                    if from == "dictionaryapi.dev" {
+                        self.note = Some(t(lang, "Source: Free Dictionary (dictionaryapi.dev)").into());
+                    } else if !from.is_empty() {
                         self.note = Some(tf(lang, "Detected language: {lang}", &[("lang", &from)]));
                     }
                 }
@@ -437,13 +430,13 @@ impl Assist {
                         sparkle(ui, 16.0);
                         ui.label(RichText::new("Themisio AI").strong());
                         ui.add_space(6.0);
-                        for (m, label) in [(Mode::Check, t(lang, "Check")), (Mode::Ask, t(lang, "Ask")), (Mode::Translate, t(lang, "Translate"))] {
+                        for (m, label) in [(Mode::Ask, t(lang, "Ask AI")), (Mode::Translate, t(lang, "Translate")), (Mode::Define, t(lang, "Meaning"))] {
                             if ui.selectable_label(self.mode == m, label).clicked() && self.mode != m {
                                 self.mode = m;
                                 self.answer = None;
                                 self.error = None;
                                 self.note = None;
-                                if m != Mode::Ask && !(m == Mode::Check && !self.suggestions.is_empty()) {
+                                if m != Mode::Ask {
                                     restart = true;
                                 }
                             }
@@ -469,7 +462,7 @@ impl Assist {
                                 }
                             });
                         } else {
-                            let label = if self.model.is_empty() { t(lang, "No model — Settings ▸ AI").to_string() } else { s.label(&self.model) };
+                            let label = if self.model.is_empty() { t(lang, "No model — Settings › AI").to_string() } else { s.label(&self.model) };
                             egui::ComboBox::from_id_salt("themisio-assist-model").selected_text(label).width(200.0).show_ui(ui, |ui| {
                                 model_items(ui, s, &mut self.model, &mut changed);
                             });
@@ -486,9 +479,8 @@ impl Assist {
                     });
                     ui.separator();
                     match self.mode {
-                        Mode::Check => self.check_body(ui, lang, busy, &mut acts, &mut restart),
-                        Mode::Ask => self.ask_body(ui, s, lang, busy, &mut acts, &mut restart),
-                        Mode::Translate => self.result_body(ui, lang, busy, &mut acts, &mut restart),
+                        Mode::Check | Mode::Ask => self.ask_body(ui, s, lang, busy, &mut acts, &mut restart),
+                        Mode::Translate | Mode::Define => self.result_body(ui, lang, busy, &mut acts, &mut restart),
                     }
                 });
             });
@@ -516,6 +508,7 @@ impl Assist {
                     Mode::Check => t(lang, "Checking…"),
                     Mode::Ask => t(lang, "Writing…"),
                     Mode::Translate => t(lang, "Translating…"),
+                    Mode::Define => t(lang, "Looking up…"),
                 };
                 ui.label(format!("{what} {secs} s"));
                 if ui.small_button(t(lang, "Cancel")).clicked() {
@@ -532,80 +525,6 @@ impl Assist {
             return true;
         }
         false
-    }
-
-    fn check_body(&mut self, ui: &mut egui::Ui, lang: Lang, busy: bool, acts: &mut Vec<Act>, restart: &mut bool) {
-        if let Some(target) = &self.target {
-            let what = if target.selection { t(lang, "Selection") } else { t(lang, "Paragraph") };
-            ui.label(RichText::new(format!("{what}: {}", preview(&target.text, 90))).small().weak());
-        }
-        if self.status(ui, lang, busy, restart) {
-            return;
-        }
-        if let Some(n) = &self.note {
-            ui.horizontal(|ui| {
-                tick(ui);
-                ui.label(n);
-            });
-            return;
-        }
-        let open: Vec<usize> = self.suggestions.iter().enumerate().filter(|(_, s)| s.state == State::Open).map(|(i, _)| i).collect();
-        ui.horizontal(|ui| {
-            let label = if open.is_empty() && !self.suggestions.is_empty() { t(lang, "All done").to_string() } else { tf(lang, "{n} suggestions", &[("n", &open.len().to_string())]) };
-            ui.label(RichText::new(label).strong());
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if !open.is_empty() && ui.button(t(lang, "Accept all")).clicked() {
-                    for i in &open {
-                        acts.push(Act::Apply(*i));
-                    }
-                }
-                if ui.small_button(t(lang, "Check again")).clicked() {
-                    *restart = true;
-                }
-            });
-        });
-        egui::ScrollArea::vertical().max_height(380.0).min_scrolled_height(380.0).auto_shrink([false, true]).show(ui, |ui| {
-            for (i, s) in self.suggestions.iter_mut().enumerate() {
-                if s.state == State::Dismissed {
-                    continue;
-                }
-                egui::Frame::NONE.fill(ui.visuals().faint_bg_color).corner_radius(CornerRadius::same(8)).inner_margin(egui::Margin::same(8)).show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.spacing_mut().item_spacing.y = 3.0;
-                    ui.horizontal(|ui| {
-                        chip(ui, &s.kind, lang);
-                        if s.state == State::Open {
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if ui.small_button(t(lang, "Dismiss")).clicked() {
-                                    s.state = State::Dismissed;
-                                }
-                                if ui.small_button(t(lang, "Accept")).clicked() {
-                                    acts.push(Act::Apply(i));
-                                }
-                            });
-                        }
-                        match s.state {
-                            State::Applied => {
-                                ui.label(RichText::new(t(lang, "Applied")).small().color(Color32::from_rgb(0x2B, 0xB8, 0x6A)));
-                            }
-                            State::Failed => {
-                                ui.label(RichText::new(t(lang, "Couldn't apply — the text changed")).small().color(Color32::from_rgb(0xF0, 0x3C, 0x45)));
-                            }
-                            _ => {}
-                        }
-                    });
-                    ui.horizontal_wrapped(|ui| {
-                        ui.label(RichText::new(&s.original).strikethrough().color(Color32::from_rgb(0xE0, 0x55, 0x5E)));
-                        ui.label("→");
-                        ui.label(RichText::new(if s.replacement.is_empty() { "∅" } else { &s.replacement }).strong().color(Color32::from_rgb(0x2B, 0xB8, 0x6A)));
-                    });
-                    if !s.explanation.is_empty() {
-                        ui.label(RichText::new(&s.explanation).small());
-                    }
-                });
-                ui.add_space(4.0);
-            }
-        });
     }
 
     fn ask_body(&mut self, ui: &mut egui::Ui, s: &AiSettings, lang: Lang, busy: bool, acts: &mut Vec<Act>, restart: &mut bool) {
@@ -633,7 +552,7 @@ impl Assist {
             let label = if self.skills.is_empty() { t(lang, "Skills").to_string() } else { format!("{} ({})", t(lang, "Skills"), self.skills.len()) };
             ui.menu_button(label, |ui| {
                 if list.is_empty() {
-                    ui.label(RichText::new(t(lang, "No skills yet. Add SKILL.md folders in Settings ▸ AI.")).small());
+                    ui.label(RichText::new(t(lang, "No skills yet. Add SKILL.md folders in Settings › AI.")).small());
                 }
                 for sk in &list {
                     let mut on = self.skills.contains(&sk.name);
@@ -657,7 +576,7 @@ impl Assist {
     }
 
     fn result_body(&mut self, ui: &mut egui::Ui, lang: Lang, busy: bool, acts: &mut Vec<Act>, restart: &mut bool) {
-        if self.mode == Mode::Translate
+        if matches!(self.mode, Mode::Translate | Mode::Define)
             && let Some(target) = &self.target
         {
             ui.label(RichText::new(preview(&target.text, 120)).small().weak());
@@ -676,116 +595,13 @@ impl Assist {
             ui.label(RichText::new(n).small().weak());
         }
         ui.horizontal(|ui| {
-            if self.target.is_some() && ui.button(t(lang, "Replace")).clicked() {
+            if self.target.is_some() && self.mode != Mode::Define && ui.button(t(lang, "Replace")).clicked() {
                 acts.push(Act::Replace(answer.clone()));
             }
             if ui.button(t(lang, "Copy")).clicked() {
                 acts.push(Act::Copy(answer.clone()));
             }
         });
-    }
-
-    // ---------------- auto-check ----------------
-
-    /// After a pause in typing, check the paragraph being written (when on for this app).
-    /// `target` is read by the shell at most a few times a second.
-    pub fn auto_tick(&mut self, ctx: &egui::Context, kind: AppKind, target: Option<AiTarget>, s: &AiSettings, lang: Lang, now: f64) {
-        if let Some(job) = &self.auto.job
-            && let Some(r) = job.take()
-        {
-            self.auto.job = None;
-            if let (Ok(list), Some((k, tg))) = (r, self.auto.job_for.take())
-                && !list.is_empty()
-            {
-                self.auto.found = Some((k, tg, list));
-            }
-        }
-        let Some(target) = target else {
-            self.auto.found = None;
-            return;
-        };
-        let h = hash(&target.text);
-        if h != self.auto.seen {
-            self.auto.seen = h;
-            self.auto.changed_at = now;
-            if self.auto.found.as_ref().is_some_and(|(_, t, _)| hash(&t.text) != h) {
-                self.auto.found = None;
-            }
-            return;
-        }
-        let delay = f64::from(s.auto_delay_ms.max(800)) / 1000.0;
-        if now - self.auto.changed_at < delay || self.auto.checked == h || self.auto.job.is_some() || target.text.trim().chars().count() < 12 {
-            if now - self.auto.changed_at < delay {
-                ctx.request_repaint_after(std::time::Duration::from_secs_f64(delay - (now - self.auto.changed_at) + 0.05));
-            }
-            return;
-        }
-        let Some(model) = s.model_for(&s.write_model) else { return };
-        self.auto.checked = h;
-        let settings = s.clone();
-        let text = target.text.clone();
-        let req = Request {
-            model,
-            system: check_system(s, lang),
-            messages: vec![("user".into(), format!("Text:\n<<<\n{text}\n>>>"))],
-            effort: if s.effort.is_empty() { "low".into() } else { s.effort.clone() },
-            thinking: false,
-            max_tokens: 0,
-        };
-        self.auto.job_for = Some((kind, target));
-        self.auto.job = Some(Job::spawn(ctx, move |c| {
-            let out = super::complete(&settings, &req, c)?;
-            parse_suggestions(&out, &text)
-        }));
-    }
-
-    pub fn auto_poll_due(&mut self, now: f64) -> bool {
-        if now >= self.auto.next_poll {
-            self.auto.next_poll = now + 0.4;
-            return true;
-        }
-        false
-    }
-
-    pub fn forget_auto(&mut self) {
-        self.auto = Auto::default();
-    }
-
-    /// Auto-check's result: a small badge at the bottom right of the app, opening the popup.
-    fn badge(&mut self, ctx: &egui::Context, app_rect: Rect, lang: Lang, style: &Arc<egui::Style>) {
-        let busy = self.auto.job.is_some();
-        let count = self.auto.found.as_ref().map_or(0, |(_, _, l)| l.len());
-        if (count == 0 && !busy) || self.open {
-            return;
-        }
-        let size = vec2(if count > 0 { 150.0 } else { 36.0 }, 32.0);
-        let at = pos2(app_rect.right() - size.x - 22.0, app_rect.bottom() - size.y - 34.0);
-        let mut clicked = false;
-        egui::Area::new(egui::Id::unique("themisio-assist-badge")).order(egui::Order::Foreground).fixed_pos(at).show(ctx, |ui| {
-            ui.set_style(style.clone());
-            let (r, resp) = ui.allocate_exact_size(size, Sense::click());
-            let p = ui.painter();
-            let fill = if resp.hovered() { crate::theme::BRAND } else { crate::theme::BRAND_DEEP };
-            p.rect(r, CornerRadius::same(16), fill, Stroke::new(1.0, crate::theme::GOLD.gamma_multiply(0.6)), egui::StrokeKind::Inside);
-            draw_sparkle(p, pos2(r.left() + 18.0, r.center().y), 7.0, crate::theme::GOLD);
-            if count > 0 {
-                p.text(
-                    pos2(r.left() + 32.0, r.center().y),
-                    egui::Align2::LEFT_CENTER,
-                    tf(lang, "{n} suggestions", &[("n", &count.to_string())]),
-                    crate::theme::ui_font(ctx, 12.5),
-                    crate::theme::CREAM,
-                );
-            } else {
-                ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
-            }
-            clicked = resp.on_hover_text(t(lang, "Writing suggestions")).clicked();
-        });
-        if clicked
-            && let Some((kind, target, list)) = self.auto.found.take()
-        {
-            self.open_found(kind, target, list, at - vec2(300.0, 300.0));
-        }
     }
 }
 
@@ -798,23 +614,9 @@ fn model_items(ui: &mut egui::Ui, s: &AiSettings, value: &mut String, changed: &
     }
 }
 
-fn preview(text: &str, n: usize) -> String {
+pub(super) fn preview(text: &str, n: usize) -> String {
     let one: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if one.chars().count() > n { format!("{}…", one.chars().take(n).collect::<String>()) } else { one }
-}
-
-fn chip(ui: &mut egui::Ui, kind: &str, lang: Lang) {
-    let (label, color) = match kind {
-        "spelling" => (t(lang, "Spelling"), Color32::from_rgb(0xF0, 0x3C, 0x45)),
-        "grammar" => (t(lang, "Grammar"), Color32::from_rgb(0xF5, 0x8E, 0x1C)),
-        "punctuation" => (t(lang, "Punctuation"), Color32::from_rgb(0xF5, 0x8E, 0x1C)),
-        "syntax" => (t(lang, "Syntax"), Color32::from_rgb(0xF5, 0x8E, 0x1C)),
-        "clarity" => (t(lang, "Clarity"), Color32::from_rgb(0x1A, 0x8C, 0xF8)),
-        _ => (t(lang, "Style"), Color32::from_rgb(0x8B, 0x5C, 0xF6)),
-    };
-    egui::Frame::NONE.fill(color.gamma_multiply(0.18)).corner_radius(CornerRadius::same(5)).inner_margin(egui::Margin::symmetric(6, 1)).show(ui, |ui| {
-        ui.label(RichText::new(label).small().color(color));
-    });
 }
 
 /// A close button drawn as a cross (no font glyph, so it shows over every app).
@@ -830,7 +632,7 @@ pub fn close_button(ui: &mut egui::Ui) -> bool {
     resp.clicked()
 }
 
-fn tick(ui: &mut egui::Ui) {
+pub(super) fn tick(ui: &mut egui::Ui) {
     let (rect, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
     let c = rect.center();
     ui.painter().circle_filled(c, 8.0, Color32::from_rgb(0x2B, 0xB8, 0x6A));

@@ -92,7 +92,7 @@ fn services(file_dialog: file_dialogs::Hook, ctx: &egui::Context) -> Services {
         print_native: Some(print::submit()),
         cancel_print: Some(print::cancel()),
         clipboard_picture: Some(Box::new(clipboard::picture)),
-        // File ▸ Options ▸ "make the default": registers Themisio's file types, then opens
+        // File › Options › "make the default": registers Themisio's file types, then opens
         // Windows' Default apps page, where the user picks Themisio.
         make_default_app: crate::assoc::default_app_hook(),
         templates_dir: wordcraft_control_key::settings_dir().map(|d| d.join("Templates")),
@@ -164,7 +164,7 @@ impl Host for WordHost {
         if closing && (self.app.closes_a_window() || !self.app.close_requested()) {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
         } else if self.app.quit_requested && !self.app.printing.busy() {
-            // File ▸ Exit, or the save prompt let the close go on: Themisio decides what closes.
+            // File › Exit, or the save prompt let the close go on: Themisio decides what closes.
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
     }
@@ -221,7 +221,10 @@ impl Host for WordHost {
 
     fn tabs(&self) -> Option<Vec<super::Tab>> {
         let docs = self.app.session.documents();
-        Some(docs.into_iter().map(|d| super::Tab { id: d.id, title: d.title, dirty: d.dirty, active: d.active }).collect())
+        // With no document open (the last one was closed), WordCraft keeps a stand-in that is
+        // not a document the user has: no tab for it.
+        let none = !self.app.has_document();
+        Some(docs.into_iter().filter(|d| !(none && d.active)).map(|d| super::Tab { id: d.id, title: d.title, dirty: d.dirty, active: d.active }).collect())
     }
 
     fn command(&mut self, cmd: super::DocCommand) -> Result<(), String> {
@@ -279,6 +282,91 @@ impl Host for WordHost {
             return Err("The text has changed since it was checked".into());
         }
         self.app.run("text.insert", serde_json::json!({"text": replacement})).map(|_| ()).map_err(|e| e.to_string())
+    }
+
+    fn ai_revision(&mut self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        self.app.session.rev().hash(&mut h);
+        self.app.session.path.hash(&mut h);
+        self.app.session.doc.body.len().hash(&mut h);
+        h.finish()
+    }
+
+    fn ai_units(&mut self) -> Vec<(serde_json::Value, String)> {
+        let mut out = Vec::new();
+        for (i, b) in self.app.session.doc.body.iter().enumerate().take(5000) {
+            if let Some(p) = b.as_para() {
+                let text = p.plain_text();
+                if text.trim().chars().count() >= 3 {
+                    out.push((serde_json::json!({"block": i}), text));
+                }
+            }
+        }
+        out
+    }
+
+    fn ai_marks(&mut self, key: &serde_json::Value, original: &str) -> Vec<egui::Rect> {
+        use wordcraft_ui_egui::canvas::cursor::pos_screen;
+        let Some(i) = key["block"].as_u64().map(|i| i as usize) else { return Vec::new() };
+        let Some(raw) = self.app.session.doc.body.get(i).and_then(|b| b.as_para()).map(|p| p.text.clone()) else { return Vec::new() };
+        let Some(b0) = raw.find(original) else { return Vec::new() };
+        let b1 = b0 + original.len();
+        let at = |app: &mut WordApp, off: usize| pos_screen(app, &wordcraft_doc::Pos::body(i, off));
+        let (Some((p0, h0)), Some((p1, _))) = (at(&mut self.app, b0), at(&mut self.app, b1)) else { return Vec::new() };
+        if (p0.y - p1.y).abs() < 1.0 && p1.x >= p0.x {
+            return vec![egui::Rect::from_min_max(p0, egui::pos2(p1.x, p0.y + h0))];
+        }
+        // Across lines: one rectangle per line.
+        let mut rects: Vec<egui::Rect> = Vec::new();
+        let mut line: Option<(egui::Pos2, f32, f32)> = None;
+        let bounds: Vec<usize> = raw[b0..b1].char_indices().map(|(k, _)| b0 + k).chain(std::iter::once(b1)).take(400).collect();
+        for off in bounds {
+            let Some((p, h)) = at(&mut self.app, off) else { continue };
+            match line {
+                Some((start, height, x)) if (start.y - p.y).abs() < 1.0 => line = Some((start, height, x.max(p.x))),
+                Some((start, height, x)) => {
+                    rects.push(egui::Rect::from_min_max(start, egui::pos2(x, start.y + height)));
+                    line = Some((p, h, p.x));
+                }
+                None => line = Some((p, h, p.x)),
+            }
+        }
+        if let Some((start, height, x)) = line {
+            rects.push(egui::Rect::from_min_max(start, egui::pos2(x, start.y + height)));
+        }
+        rects.retain(|r| r.width() > 1.0);
+        rects
+    }
+
+    fn ai_viewport(&mut self) -> Option<egui::Rect> {
+        self.app.canvas.canvas_rect
+    }
+
+    fn ai_apply(&mut self, key: &serde_json::Value, original: &str, replacement: &str) -> Result<(), String> {
+        let i = key["block"].as_u64().ok_or("no paragraph")? as usize;
+        let target = super::AiTarget { text: original.into(), selection: false, anchor: serde_json::json!({"start": wordcraft_doc::Pos::body(i, 0)}), screen: None };
+        self.ai_replace(&target, original, replacement)
+    }
+
+    fn ai_focus(&mut self, key: &serde_json::Value, original: &str) {
+        let Some(i) = key["block"].as_u64().map(|i| i as usize) else { return };
+        let Some(raw) = self.app.session.doc.body.get(i).and_then(|b| b.as_para()).map(|p| p.text.clone()) else { return };
+        let (a, b) = match raw.find(original) {
+            Some(b0) => (b0, b0 + original.len()),
+            None => (0, 0),
+        };
+        let _ = self.app.run(
+            "select.range",
+            serde_json::json!({"anchor": wordcraft_doc::Pos::body(i, a), "focus": wordcraft_doc::Pos::body(i, b)}),
+        );
+        self.app.canvas.want_focus = true;
+    }
+
+    fn ai_insert(&mut self, text: &str) -> Result<(), String> {
+        let (_, end) = self.app.session.sel.ordered();
+        self.app.session.sel = wordcraft_engine::Selection { anchor: end.clone(), focus: end };
+        self.app.run("text.insert", serde_json::json!({"text": text})).map(|_| ()).map_err(|e| e.to_string())
     }
 
     fn ai_replace_all(&mut self, target: &super::AiTarget, text: &str) -> Result<(), String> {

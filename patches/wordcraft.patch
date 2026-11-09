@@ -36,6 +36,31 @@ index 514a312..baad924 100644
      // A selected picture, shape, text box or chart: its own items, then Wrap Text (#513).
      let picture = crate::ribbon::has_picture_selected(&app.session);
      let object = wordcraft_engine::cmd::objects::object_selection(&app.session).is_some();
+diff --git a/crates/ui-egui/src/canvas/cursor.rs b/crates/ui-egui/src/canvas/cursor.rs
+index 0f1f437..89dd2c9 100644
+--- a/crates/ui-egui/src/canvas/cursor.rs
++++ b/crates/ui-egui/src/canvas/cursor.rs
+@@ -17,6 +17,20 @@ pub fn caret_screen(app: &mut WordApp) -> Option<(Pos2, f32)> {
+     Some((p, c.height.max(c.width) * scale))
+ }
+ 
++/// Where `pos` is on screen (the top of a caret there) and the line's height.
++pub fn pos_screen(app: &mut WordApp, pos: &Pos) -> Option<(Pos2, f32)> {
++    let l = app.session.layout();
++    let c = l.caret_on(pos, app.session.page_hint)?;
++    let p = page_to_screen(app, c.page, c.x, c.top)?;
++    let scale = app
++        .canvas
++        .page_rects
++        .get(c.page)
++        .and_then(|r| l.pages.get(c.page).map(|page| page_screen_scale(*r, page, app.canvas.scale)))
++        .unwrap_or(app.canvas.scale);
++    Some((p, c.height * scale))
++}
++
+ pub fn pos_from_screen(app: &mut WordApp, p: Pos2) -> Option<Pos> {
+     let layout = app.session.layout();
+     let (page, x, y) = page_at(&app.canvas.page_rects, &layout, app.canvas.scale, p)?;
 diff --git a/crates/ui-egui/src/chrome.rs b/crates/ui-egui/src/chrome.rs
 index eb7b0ca..a3e7fba 100644
 --- a/crates/ui-egui/src/chrome.rs
@@ -50,7 +75,7 @@ index eb7b0ca..a3e7fba 100644
                              ui.painter().rect_filled(r, 11.0, if resp.hovered() { t.accent_text } else { t.accent });
                              icons::paint(
 diff --git a/crates/ui-egui/src/dialogs/dispatch.rs b/crates/ui-egui/src/dialogs/dispatch.rs
-index 4278efa..5a068e4 100644
+index 4278efa..1370544 100644
 --- a/crates/ui-egui/src/dialogs/dispatch.rs
 +++ b/crates/ui-egui/src/dialogs/dispatch.rs
 @@ -1149,8 +1149,6 @@ fn about_dialog(ui: &mut Ui, d: &mut Dialog) -> bool {
@@ -62,6 +87,15 @@ index 4278efa..5a068e4 100644
              ui.hyperlink_to(tl!("Source code: github.com/storytold/wordcraft"), "https://github.com/storytold/wordcraft");
              ui.add_space(6.0);
              ui.label(egui::RichText::new(tl!("MIT OR Apache-2.0. Copyright (c) 2026 ArtCraft Team and the WordCraft contributors.")).small().weak());
+@@ -1194,7 +1192,7 @@ fn save_changes_dialog(app: &mut WordApp, ui: &mut Ui, d: &mut Dialog) -> bool {
+     let Dialog::SaveChanges { name, message, .. } = d else {
+         return false;
+     };
+-    ui.label(egui::RichText::new(crate::i18n::fmt(tl!("Do you want to save changes to {name}?"), &[("name", name)])).font(semibold(15.0)));
++    ui.label(egui::RichText::new(crate::i18n::fmt(tl!("Do you want to save changes to {name}?"), &[("name", name)])).font(semibold(13.5)));
+     ui.label(tl!("Your changes will be lost if you don't save them."));
+     // Why the last Save failed (#1445): the prompt came back so the user can't miss it.
+     if !message.is_empty() {
 diff --git a/crates/ui-egui/src/options.rs b/crates/ui-egui/src/options.rs
 index 85941a0..e595204 100644
 --- a/crates/ui-egui/src/options.rs

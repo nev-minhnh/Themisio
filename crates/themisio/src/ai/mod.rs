@@ -10,9 +10,12 @@
 
 pub mod assist;
 pub mod keys;
+pub mod kit;
+pub mod md;
 pub mod settings_ui;
 pub mod sheet_chat;
 pub mod skills;
+pub mod writer;
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -145,6 +148,14 @@ pub struct AiSettings {
     pub active_skills: Vec<String>,
     /// More folders holding skills (Themisio's own and Claude Code's are always read).
     pub skill_dirs: Vec<String>,
+    /// Writing goals the assistant checks against.
+    pub goals: writer::Goals,
+    /// Words never flagged (the personal dictionary).
+    pub dictionary: Vec<String>,
+    /// Progress over time (suggestions accepted, words checked), for the report.
+    pub stats: writer::Stats,
+    /// Show a word's meaning when it is double-clicked.
+    pub define_on_double_click: bool,
 }
 
 impl Default for AiSettings {
@@ -165,6 +176,10 @@ impl Default for AiSettings {
             instructions: String::new(),
             active_skills: Vec::new(),
             skill_dirs: Vec::new(),
+            goals: writer::Goals::default(),
+            dictionary: Vec::new(),
+            stats: writer::Stats::default(),
+            define_on_double_click: true,
         }
     }
 }
@@ -257,11 +272,6 @@ impl AiSettings {
         all.into_iter().next()
     }
 
-    /// Whether any provider is ready to use.
-    pub fn any_ready(&self) -> bool {
-        !self.choices().is_empty()
-    }
-
     /// The label of "provider|model".
     pub fn label(&self, value: &str) -> String {
         for (_, models) in self.choices() {
@@ -284,6 +294,9 @@ pub struct Request {
     pub effort: String,
     pub thinking: bool,
     pub max_tokens: u32,
+    /// Let the model search the web (originality checks): Claude's web search tool, Claude
+    /// Code's WebSearch, or a provider that always searches (Perplexity).
+    pub web: bool,
 }
 
 fn agent(timeout: u64) -> ureq::Agent {
@@ -307,7 +320,7 @@ fn api_error(status: u16, body: &str) -> String {
     let v: Value = serde_json::from_str(body).unwrap_or(Value::Null);
     let msg = v["error"]["message"].as_str().or_else(|| v["error"].as_str()).or_else(|| v["message"].as_str()).or_else(|| v[0]["error"]["message"].as_str());
     let hint = match status {
-        401 | 403 => " — check the API key in Settings ▸ AI",
+        401 | 403 => " — check the API key in Settings › AI",
         404 => " — check the model name and the provider's address",
         429 => " — the provider's rate limit or quota was reached",
         _ => "",
@@ -320,12 +333,57 @@ fn api_error(status: u16, body: &str) -> String {
 
 /// Run `req` and return the model's answer (its text). Blocking: call from a worker thread.
 pub fn complete(settings: &AiSettings, req: &Request, cancel: &AtomicBool) -> Result<String, String> {
-    let (provider, model) = req.model.split_once('|').ok_or_else(|| "Choose a model in Settings ▸ AI.".to_string())?;
+    let (provider, model) = req.model.split_once('|').ok_or_else(|| "Choose a model in Settings › AI.".to_string())?;
     let ep = settings.endpoint(provider).ok_or_else(|| format!("Unknown provider {provider}"))?;
     match ep.wire {
         Wire::Anthropic => anthropic(&ep, model, req),
         Wire::OpenAi => openai(&ep, model, req),
         Wire::ClaudeCode => claude_code(model, req, cancel),
+    }
+}
+
+/// Like [`complete`], but streams: `on` gets the answer so far (the whole text, not the
+/// increment) as it arrives, token by token.
+pub fn complete_stream(settings: &AiSettings, req: &Request, cancel: &AtomicBool, on: &dyn Fn(&str)) -> Result<String, String> {
+    let (provider, model) = req.model.split_once('|').ok_or_else(|| "Choose a model in Settings › AI.".to_string())?;
+    let ep = settings.endpoint(provider).ok_or_else(|| format!("Unknown provider {provider}"))?;
+    let out = match ep.wire {
+        Wire::Anthropic => anthropic_stream(&ep, model, req, cancel, on),
+        Wire::OpenAi => openai_stream(&ep, model, req, cancel, on),
+        Wire::ClaudeCode => claude_code_stream(model, req, cancel, on),
+    }?;
+    on(&out);
+    Ok(out)
+}
+
+/// Read a server-sent-events body line by line, calling `each` with every `data:` payload.
+fn sse(resp: ureq::http::Response<ureq::Body>, cancel: &AtomicBool, mut each: impl FnMut(&str) -> bool) -> Result<(), String> {
+    use std::io::BufRead;
+    let reader = std::io::BufReader::new(resp.into_body().into_reader());
+    for line in reader.lines() {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("Stopped".into());
+        }
+        let line = line.map_err(|e| e.to_string())?;
+        if let Some(data) = line.strip_prefix("data:") {
+            let data = data.trim();
+            if data == "[DONE]" {
+                break;
+            }
+            if !each(data) {
+                break;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The visible part of a streamed answer: without a reasoning model's `<think>` block, and
+/// nothing while the block is still open.
+fn visible_answer(s: &str) -> String {
+    match (s.find("<think>"), s.find("</think>")) {
+        (Some(a), None) => s[..a].to_string(),
+        _ => strip_think(s),
     }
 }
 
@@ -337,22 +395,9 @@ fn claude_adaptive(m: &str) -> bool {
 }
 
 fn anthropic(ep: &Endpoint, model: &str, req: &Request) -> Result<String, String> {
-    let key = keys::get(&ep.id).ok_or("No API key for Claude — add it in Settings ▸ AI.")?;
+    let key = keys::get(&ep.id).ok_or("No API key for Claude — add it in Settings › AI.")?;
     let base = ep.base_url.trim_end_matches('/');
-    let think = req.thinking;
-    let max = if req.max_tokens > 0 { req.max_tokens } else if think { 16000 } else { 4096 };
-    let messages: Vec<Value> = req.messages.iter().map(|(r, t)| json!({"role": if r == "assistant" { "assistant" } else { "user" }, "content": t})).collect();
-    let mut body = json!({"model": model, "max_tokens": max, "messages": messages});
-    if !req.system.is_empty() {
-        body["system"] = json!(req.system);
-    }
-    if think {
-        body["thinking"] = if claude_adaptive(model) { json!({"type": "adaptive"}) } else { json!({"type": "enabled", "budget_tokens": (max / 2).max(1024)}) };
-    }
-    if !req.effort.is_empty() && (claude_adaptive(model) || model.contains("opus-4-5")) {
-        let e = if (req.effort == "xhigh" || req.effort == "max") && !claude_new_gen(model) { "high" } else { req.effort.as_str() };
-        body["output_config"] = json!({"effort": e});
-    }
+    let body = anthropic_body(model, req);
     let resp = agent(240)
         .post(&format!("{base}/v1/messages"))
         .header("x-api-key", &key)
@@ -369,14 +414,172 @@ fn anthropic(ep: &Endpoint, model: &str, req: &Request) -> Result<String, String
     Ok(out)
 }
 
-fn openai(ep: &Endpoint, model: &str, req: &Request) -> Result<String, String> {
+fn anthropic_body(model: &str, req: &Request) -> Value {
+    let think = req.thinking;
+    let max = if req.max_tokens > 0 { req.max_tokens } else if think { 16000 } else { 4096 };
+    let messages: Vec<Value> = req.messages.iter().map(|(r, t)| json!({"role": if r == "assistant" { "assistant" } else { "user" }, "content": t})).collect();
+    let mut body = json!({"model": model, "max_tokens": max, "messages": messages});
+    if !req.system.is_empty() {
+        body["system"] = json!(req.system);
+    }
+    if think {
+        body["thinking"] = if claude_adaptive(model) { json!({"type": "adaptive"}) } else { json!({"type": "enabled", "budget_tokens": (max / 2).max(1024)}) };
+    }
+    if req.web {
+        body["tools"] = json!([{"type": "web_search_20250305", "name": "web_search", "max_uses": 8}]);
+    }
+    if !req.effort.is_empty() && (claude_adaptive(model) || model.contains("opus-4-5")) {
+        let e = if (req.effort == "xhigh" || req.effort == "max") && !claude_new_gen(model) { "high" } else { req.effort.as_str() };
+        body["output_config"] = json!({"effort": e});
+    }
+    body
+}
+
+fn anthropic_stream(ep: &Endpoint, model: &str, req: &Request, cancel: &AtomicBool, on: &dyn Fn(&str)) -> Result<String, String> {
+    let key = keys::get(&ep.id).ok_or("No API key for Claude — add it in Settings › AI.")?;
+    let base = ep.base_url.trim_end_matches('/');
+    let mut body = anthropic_body(model, req);
+    body["stream"] = json!(true);
+    let resp = agent(600)
+        .post(&format!("{base}/v1/messages"))
+        .header("x-api-key", &key)
+        .header("anthropic-version", "2023-06-01")
+        .header("content-type", "application/json")
+        .send(body.to_string())
+        .map_err(|e| e.to_string())?;
+    if resp.status().as_u16() >= 400 {
+        let (status, text) = read(resp)?;
+        return Err(api_error(status, &text));
+    }
+    let mut out = String::new();
+    let mut error = None;
+    sse(resp, cancel, |data| {
+        let v: Value = serde_json::from_str(data).unwrap_or(Value::Null);
+        match v["type"].as_str() {
+            Some("content_block_delta") if v["delta"]["type"] == "text_delta" => {
+                out.push_str(v["delta"]["text"].as_str().unwrap_or(""));
+                on(&out);
+            }
+            Some("content_block_start") if v["content_block"]["type"] == "text" && !out.is_empty() && !out.ends_with('\n') => {
+                // A new text block after a web search: keep paragraphs apart.
+                out.push_str("\n\n");
+            }
+            Some("error") => {
+                error = Some(v["error"]["message"].as_str().unwrap_or("The provider reported an error").to_string());
+                return false;
+            }
+            Some("message_stop") => return false,
+            _ => {}
+        }
+        true
+    })?;
+    match error {
+        Some(e) => Err(e),
+        None => Ok(out.trim().to_string()),
+    }
+}
+
+fn openai_body(model: &str, req: &Request) -> Value {
+    let mut messages = Vec::new();
+    if !req.system.is_empty() {
+        messages.push(json!({"role": "system", "content": req.system}));
+    }
+    for (r, t) in &req.messages {
+        messages.push(json!({"role": if r == "assistant" { "assistant" } else { "user" }, "content": t}));
+    }
+    let mut body = json!({"model": model, "messages": messages});
+    if req.max_tokens > 0 {
+        body["max_tokens"] = json!(req.max_tokens);
+    }
+    let effort = match (req.effort.as_str(), req.thinking) {
+        ("", true) => Some("medium"),
+        ("", false) => None,
+        ("low", _) => Some("low"),
+        ("medium", _) => Some("medium"),
+        (_, _) => Some("high"),
+    };
+    if let Some(e) = effort {
+        body["reasoning_effort"] = json!(e);
+    }
+    body
+}
+
+fn openai_stream(ep: &Endpoint, model: &str, req: &Request, cancel: &AtomicBool, on: &dyn Fn(&str)) -> Result<String, String> {
     let key = keys::get(&ep.id);
     if key.is_none() && !ep.optional_key {
-        return Err(format!("No API key for {} — add it in Settings ▸ AI.", ep.name));
+        return Err(format!("No API key for {} — add it in Settings › AI.", ep.name));
     }
     let base = ep.base_url.trim_end_matches('/');
     if base.is_empty() {
-        return Err(format!("{} has no address — set it in Settings ▸ AI.", ep.name));
+        return Err(format!("{} has no address — set it in Settings › AI.", ep.name));
+    }
+    let mut body = openai_body(model, req);
+    body["stream"] = json!(true);
+    let send = |body: &Value| -> Result<ureq::http::Response<ureq::Body>, String> {
+        let mut r = agent(600).post(&format!("{base}/chat/completions")).header("content-type", "application/json");
+        if let Some(k) = &key {
+            r = r.header("authorization", &format!("Bearer {k}"));
+        }
+        r.send(body.to_string()).map_err(|e| e.to_string())
+    };
+    let mut resp = send(&body)?;
+    if resp.status().as_u16() == 400 && body.get("reasoning_effort").is_some() {
+        let (status, text) = read(resp)?;
+        if !text.to_lowercase().contains("reasoning") {
+            return Err(api_error(status, &text));
+        }
+        if let Some(o) = body.as_object_mut() {
+            o.remove("reasoning_effort");
+        }
+        resp = send(&body)?;
+    }
+    if resp.status().as_u16() >= 400 {
+        let (status, text) = read(resp)?;
+        return Err(api_error(status, &text));
+    }
+    // A server that ignores "stream" answers with one JSON body.
+    let streaming = resp.headers().get("content-type").and_then(|v| v.to_str().ok()).is_some_and(|t| t.contains("event-stream"));
+    if !streaming {
+        let (_, text) = read(resp)?;
+        let v: Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        let content = &v["choices"][0]["message"]["content"];
+        let out = match content {
+            Value::String(s) => s.clone(),
+            Value::Array(parts) => parts.iter().filter_map(|p| p["text"].as_str()).collect(),
+            _ => String::new(),
+        };
+        return Ok(strip_think(&out));
+    }
+    let mut raw = String::new();
+    let mut error = None;
+    sse(resp, cancel, |data| {
+        let v: Value = serde_json::from_str(data).unwrap_or(Value::Null);
+        if let Some(m) = v["error"]["message"].as_str() {
+            error = Some(m.to_string());
+            return false;
+        }
+        if let Some(t) = v["choices"][0]["delta"]["content"].as_str()
+            && !t.is_empty()
+        {
+            raw.push_str(t);
+            on(&visible_answer(&raw));
+        }
+        true
+    })?;
+    match error {
+        Some(e) => Err(e),
+        None => Ok(strip_think(&raw)),
+    }
+}
+
+fn openai(ep: &Endpoint, model: &str, req: &Request) -> Result<String, String> {
+    let key = keys::get(&ep.id);
+    if key.is_none() && !ep.optional_key {
+        return Err(format!("No API key for {} — add it in Settings › AI.", ep.name));
+    }
+    let base = ep.base_url.trim_end_matches('/');
+    if base.is_empty() {
+        return Err(format!("{} has no address — set it in Settings › AI.", ep.name));
     }
     let mut messages = Vec::new();
     if !req.system.is_empty() {
@@ -530,7 +733,7 @@ fn run_for(mut c: std::process::Command, input: Option<String>, timeout: Duratio
 }
 
 fn claude_code(model: &str, req: &Request, cancel: &AtomicBool) -> Result<String, String> {
-    let exe = find_claude().ok_or("Claude Code isn't installed — Settings ▸ AI ▸ Claude Code")?;
+    let exe = find_claude().ok_or("Claude Code isn't installed — Settings › AI › Claude Code")?;
     let dir = std::env::temp_dir().join("themisio-claude");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let sys = dir.join(format!("system-{}-{}.md", std::process::id(), rand_id()));
@@ -547,8 +750,14 @@ fn claude_code(model: &str, req: &Request, cancel: &AtomicBool) -> Result<String
         p
     };
     let mut c = hidden(&exe);
-    c.current_dir(&dir).args(["-p", "--output-format", "json", "--max-turns", "1"]);
-    c.args(["--disallowedTools", "Bash,PowerShell,Read,Edit,MultiEdit,Write,NotebookEdit,Glob,Grep,WebFetch,WebSearch,Task,Agent,TodoWrite,Skill"]);
+    if req.web {
+        c.current_dir(&dir).args(["-p", "--output-format", "json", "--max-turns", "12"]);
+        c.args(["--allowedTools", "WebSearch,WebFetch"]);
+        c.args(["--disallowedTools", "Bash,PowerShell,Read,Edit,MultiEdit,Write,NotebookEdit,Glob,Grep,Task,Agent,TodoWrite,Skill"]);
+    } else {
+        c.current_dir(&dir).args(["-p", "--output-format", "json", "--max-turns", "1"]);
+        c.args(["--disallowedTools", "Bash,PowerShell,Read,Edit,MultiEdit,Write,NotebookEdit,Glob,Grep,WebFetch,WebSearch,Task,Agent,TodoWrite,Skill"]);
+    }
     c.arg("--append-system-prompt-file").arg(&sys);
     if !model.is_empty() && model != "default" {
         c.args(["--model", model]);
@@ -573,9 +782,148 @@ fn claude_code(model: &str, req: &Request, cancel: &AtomicBool) -> Result<String
     let err = String::from_utf8_lossy(&out.stderr);
     let msg = err.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("it stopped without an answer").to_string();
     if msg.to_lowercase().contains("login") || msg.to_lowercase().contains("auth") {
-        return Err("Claude Code isn't signed in — Settings ▸ AI ▸ Claude Code ▸ Sign in".into());
+        return Err("Claude Code isn't signed in — Settings › AI › Claude Code › Sign in".into());
     }
     Err(format!("Claude Code: {msg}"))
+}
+
+/// Claude Code with `--output-format stream-json --include-partial-messages`: text deltas as
+/// they come. Falls back to the plain run when this version of Claude Code can't stream.
+fn claude_code_stream(model: &str, req: &Request, cancel: &AtomicBool, on: &dyn Fn(&str)) -> Result<String, String> {
+    use std::io::{BufRead, Write};
+    let exe = find_claude().ok_or("Claude Code isn't installed — Settings › AI › Claude Code")?;
+    let dir = std::env::temp_dir().join("themisio-claude");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let sys = dir.join(format!("system-{}-{}.md", std::process::id(), rand_id()));
+    std::fs::write(&sys, format!("{}\n\n# How to answer\nYou are answering inside Themisio, a document editor. Use no tools; answer directly, following the instructions above exactly.", req.system))
+        .map_err(|e| e.to_string())?;
+    let prompt = claude_prompt(req);
+    let mut c = hidden(&exe);
+    c.current_dir(&dir).args(["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages"]);
+    if req.web {
+        c.args(["--max-turns", "12", "--allowedTools", "WebSearch,WebFetch"]);
+        c.args(["--disallowedTools", "Bash,PowerShell,Read,Edit,MultiEdit,Write,NotebookEdit,Glob,Grep,Task,Agent,TodoWrite,Skill"]);
+    } else {
+        c.args(["--max-turns", "1"]);
+        c.args(["--disallowedTools", "Bash,PowerShell,Read,Edit,MultiEdit,Write,NotebookEdit,Glob,Grep,WebFetch,WebSearch,Task,Agent,TodoWrite,Skill"]);
+    }
+    c.arg("--append-system-prompt-file").arg(&sys);
+    if !model.is_empty() && model != "default" {
+        c.args(["--model", model]);
+    }
+    if ["low", "medium", "high", "xhigh", "max"].contains(&req.effort.as_str()) {
+        c.args(["--effort", &req.effort]);
+    }
+    if !req.thinking {
+        c.env("MAX_THINKING_TOKENS", "0");
+    }
+    c.stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+    let mut child = match c.spawn() {
+        Ok(ch) => ch,
+        Err(e) => {
+            let _ = std::fs::remove_file(&sys);
+            return Err(e.to_string());
+        }
+    };
+    if let Some(mut si) = child.stdin.take() {
+        std::thread::spawn(move || {
+            let _ = si.write_all(prompt.as_bytes());
+        });
+    }
+    let mut se = child.stderr.take();
+    let err_t = std::thread::spawn(move || {
+        let mut v = String::new();
+        if let Some(s) = se.as_mut() {
+            let _ = std::io::Read::read_to_string(s, &mut v);
+        }
+        v
+    });
+    let child = Arc::new(Mutex::new(child));
+    // Stop on cancel or after ten minutes, even while a read blocks.
+    let done = Arc::new(AtomicBool::new(false));
+    {
+        let (child, done) = (child.clone(), done.clone());
+        let started = std::time::Instant::now();
+        std::thread::spawn(move || {
+            while !done.load(Ordering::Relaxed) {
+                if started.elapsed() > Duration::from_secs(600) {
+                    if let Ok(mut c) = child.lock() {
+                        let _ = c.kill();
+                    }
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        });
+    }
+    let stdout = child.lock().ok().and_then(|mut c| c.stdout.take());
+    let mut out = String::new();
+    let mut result: Option<Result<String, String>> = None;
+    if let Some(so) = stdout {
+        for line in std::io::BufReader::new(so).lines() {
+            if cancel.load(Ordering::Relaxed) {
+                if let Ok(mut c) = child.lock() {
+                    let _ = c.kill();
+                }
+                done.store(true, Ordering::Relaxed);
+                let _ = std::fs::remove_file(&sys);
+                return Err("Stopped".into());
+            }
+            let Ok(line) = line else { break };
+            let v: Value = serde_json::from_str(&line).unwrap_or(Value::Null);
+            match v["type"].as_str() {
+                Some("stream_event") => {
+                    let e = &v["event"];
+                    if e["type"] == "content_block_delta" && e["delta"]["type"] == "text_delta" {
+                        out.push_str(e["delta"]["text"].as_str().unwrap_or(""));
+                        on(&out);
+                    }
+                }
+                Some("result") => {
+                    result = Some(if v["is_error"].as_bool() == Some(true) {
+                        Err(format!("Claude Code: {}", v["result"].as_str().unwrap_or("it reported an error")))
+                    } else {
+                        Ok(v["result"].as_str().map_or_else(|| out.clone(), |r| r.trim().to_string()))
+                    });
+                }
+                _ => {}
+            }
+        }
+    }
+    done.store(true, Ordering::Relaxed);
+    if let Ok(mut c) = child.lock() {
+        let _ = c.wait();
+    }
+    let _ = std::fs::remove_file(&sys);
+    let err = err_t.join().unwrap_or_default();
+    match result {
+        Some(r) => r,
+        None if !out.is_empty() => Ok(out.trim().to_string()),
+        None => {
+            let low = err.to_lowercase();
+            if low.contains("unknown option") || low.contains("include-partial-messages") {
+                // An older Claude Code: answer in one piece.
+                return claude_code(model, req, cancel);
+            }
+            if low.contains("login") || low.contains("auth") {
+                return Err("Claude Code isn't signed in — Settings › AI › Claude Code › Sign in".into());
+            }
+            Err(format!("Claude Code: {}", err.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("it stopped without an answer")))
+        }
+    }
+}
+
+fn claude_prompt(req: &Request) -> String {
+    if req.messages.len() <= 1 {
+        req.messages.last().map(|m| m.1.clone()).unwrap_or_default()
+    } else {
+        let mut p = String::from("Conversation so far:\n\n");
+        for (r, t) in &req.messages[..req.messages.len() - 1] {
+            p.push_str(&format!("{}: {t}\n\n", if r == "assistant" { "Assistant" } else { "User" }));
+        }
+        p.push_str(&format!("Now reply to the user's last message:\n\n{}", req.messages.last().map(|m| m.1.as_str()).unwrap_or("")));
+        p
+    }
 }
 
 fn rand_id() -> u64 {
@@ -641,6 +989,45 @@ pub fn claude_code_sign_out() -> Result<(), String> {
     let mut c = hidden(&exe);
     c.args(["auth", "logout"]);
     run_for(c, None, Duration::from_secs(30), None).map(|_| ())
+}
+
+/// Whether `model` ("provider|model") can search the web for an originality check.
+pub fn can_search(model: &str) -> bool {
+    let provider = model.split('|').next().unwrap_or("");
+    matches!(provider, "anthropic" | "claudecode" | "perplexity")
+}
+
+/// A word's dictionary entry (English, from the free dictionaryapi.dev): part of speech,
+/// definitions and synonyms, as plain lines.
+pub fn define_english(word: &str) -> Result<String, String> {
+    let w = word.trim().to_lowercase();
+    if w.is_empty() || w.contains(' ') {
+        return Err("one word".into());
+    }
+    let resp = agent(20).get(&format!("https://api.dictionaryapi.dev/api/v2/entries/en/{w}")).call().map_err(|e| e.to_string())?;
+    let (status, body) = read(resp)?;
+    if status >= 400 {
+        return Err(format!("No dictionary entry for “{w}”"));
+    }
+    let v: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+    let mut out = String::new();
+    if let Some(p) = v[0]["phonetic"].as_str() {
+        out.push_str(&format!("{w}  {p}\n"));
+    }
+    for m in v[0]["meanings"].as_array().into_iter().flatten().take(4) {
+        out.push_str(&format!("\n{}\n", m["partOfSpeech"].as_str().unwrap_or("")));
+        for (i, d) in m["definitions"].as_array().into_iter().flatten().take(3).enumerate() {
+            out.push_str(&format!("{}. {}\n", i + 1, d["definition"].as_str().unwrap_or("")));
+            if let Some(e) = d["example"].as_str() {
+                out.push_str(&format!("   “{e}”\n"));
+            }
+        }
+        let syn: Vec<&str> = m["synonyms"].as_array().into_iter().flatten().filter_map(|s| s.as_str()).take(8).collect();
+        if !syn.is_empty() {
+            out.push_str(&format!("   ≈ {}\n", syn.join(", ")));
+        }
+    }
+    Ok(out.trim().to_string())
 }
 
 /// The models a provider offers (its `/models` list).
@@ -709,6 +1096,7 @@ pub fn google_translate(text: &str, to: &str) -> Result<(String, String), String
 pub struct Job<T> {
     slot: Arc<Mutex<Option<Result<T, String>>>>,
     cancel: Arc<AtomicBool>,
+    partial: Arc<Mutex<String>>,
     pub started: std::time::Instant,
 }
 
@@ -724,7 +1112,36 @@ impl<T: Send + 'static> Job<T> {
             }
             ctx.request_repaint();
         });
-        Self { slot, cancel, started: std::time::Instant::now() }
+        Self { slot, cancel, partial: Arc::new(Mutex::new(String::new())), started: std::time::Instant::now() }
+    }
+
+    /// Like [`Job::spawn`], for work that streams text: `f` gets a sink for the answer so far,
+    /// which [`Job::partial`] shows while the job runs.
+    pub fn spawn_stream(ctx: &egui::Context, f: impl FnOnce(&AtomicBool, &dyn Fn(&str)) -> Result<T, String> + Send + 'static) -> Self {
+        let slot = Arc::new(Mutex::new(None));
+        let cancel = Arc::new(AtomicBool::new(false));
+        let partial = Arc::new(Mutex::new(String::new()));
+        let (s, c, p, ctx) = (slot.clone(), cancel.clone(), partial.clone(), ctx.clone());
+        std::thread::spawn(move || {
+            let ctx2 = ctx.clone();
+            let sink = move |text: &str| {
+                if let Ok(mut g) = p.lock() {
+                    text.clone_into(&mut g);
+                }
+                ctx2.request_repaint();
+            };
+            let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&c, &sink))).unwrap_or_else(|_| Err("The request failed unexpectedly".into()));
+            if let Ok(mut g) = s.lock() {
+                *g = Some(r);
+            }
+            ctx.request_repaint();
+        });
+        Self { slot, cancel, partial, started: std::time::Instant::now() }
+    }
+
+    /// The streamed text so far.
+    pub fn partial(&self) -> String {
+        self.partial.lock().map(|g| g.clone()).unwrap_or_default()
     }
 
     /// The result, once (None while it runs).

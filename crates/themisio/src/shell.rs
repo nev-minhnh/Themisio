@@ -84,7 +84,13 @@ struct Chooser {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SettingsPage {
     General,
-    Ai,
+    Performance,
+    Files,
+    Providers,
+    Features,
+    Translation,
+    Skills,
+    About,
 }
 
 #[derive(PartialEq, Eq)]
@@ -127,13 +133,21 @@ pub struct Themisio {
     trim: crate::memory::Trim,
     /// Pinned tabs (app, document id): shown first, compact, without a close button.
     pinned_tabs: std::collections::HashSet<(AppKind, u64)>,
+    /// The order the user dragged each app's tabs into (ids; new tabs go at the end).
+    tab_order: HashMap<AppKind, Vec<u64>>,
+    /// The tab being dragged: (app, tab, pointer offset from the tab's left edge).
+    tab_drag: Option<(AppKind, u64, f32)>,
+    /// How many tabs each app showed last pass (closing the last one goes Home).
+    tab_count: HashMap<AppKind, usize>,
     /// Success and failure popups for everything that finishes, in every app.
     notices: crate::notices::Notices,
     /// The writing assistant (check, ask, translate) and its auto-check.
     assist: crate::ai::assist::Assist,
+    dock_last: Option<DockKind>,
+    writer: crate::ai::writer::Writer,
     /// The CalcSheet assistant (chat).
     sheet_chat: crate::ai::sheet_chat::SheetChat,
-    /// Settings ▸ AI's state, and which page of Settings is shown.
+    /// Settings › AI's state, and which page of Settings is shown.
     ai_ui: crate::ai::settings_ui::AiSettingsUi,
     settings_page: SettingsPage,
     /// Each app's tabs last pass, to notice a document that was saved or opened.
@@ -214,8 +228,13 @@ impl Themisio {
             applied_dark: None,
             trim: crate::memory::Trim::default(),
             pinned_tabs: Default::default(),
+            tab_order: HashMap::new(),
+            tab_drag: None,
+            tab_count: HashMap::new(),
             notices: Default::default(),
             assist: Default::default(),
+            dock_last: None,
+            writer: Default::default(),
             sheet_chat: Default::default(),
             ai_ui: Default::default(),
             settings_page: SettingsPage::General,
@@ -255,6 +274,14 @@ impl Themisio {
             && !self.hosts.is_loaded(kind)
         {
             self.starting = Some(kind);
+        }
+        // An app whose documents were all closed opens on its start screen (new, recent).
+        if let Some(kind) = page.app()
+            && self.hosts.is_loaded(kind)
+            && let Some(host) = self.hosts.get(kind)
+            && host.tabs().is_some_and(|t| t.is_empty())
+        {
+            host.show_start_screen();
         }
         self.switch = Some(Switch { to: page, started: now });
     }
@@ -540,7 +567,13 @@ impl Themisio {
     }
 
     /// The writing assistant, translation and the CalcSheet assistant, over app `kind`.
-    fn ai_frame(&mut self, ctx: &egui::Context, kind: AppKind, area: Rect, now: f64) {
+    /// Whether the AI pane (the CalcSheet assistant or the writing assistant) is open over `kind`.
+    fn dock_open(&self, kind: AppKind) -> bool {
+        (kind == AppKind::Grid && self.settings.ai.apps.calcsheet && self.sheet_chat.open) || (kind != AppKind::Pdf && self.writing_on(kind) && self.writer.panel)
+    }
+
+    /// `area`: the app's page; `dock`: the docked pane's rectangle while it is (being) shown.
+    fn ai_frame(&mut self, ctx: &egui::Context, kind: AppKind, area: Rect, dock: Option<Rect>, now: f64) {
         use crate::ai::assist::{Act, Mode};
         let lang = self.lang;
         let writing = self.writing_on(kind);
@@ -551,7 +584,7 @@ impl Themisio {
         // A right-click menu item or a shortcut.
         let mut request = crate::ai::assist::take_request();
         let mods = egui::Modifiers::CTRL | egui::Modifiers::ALT;
-        for (key, mode) in [(egui::Key::G, Mode::Check), (egui::Key::K, Mode::Ask), (egui::Key::T, Mode::Translate)] {
+        for (key, mode) in [(egui::Key::G, Mode::Check), (egui::Key::K, Mode::Ask), (egui::Key::T, Mode::Translate), (egui::Key::D, Mode::Define)] {
             if ctx.input_mut(|i| i.consume_shortcut(&egui::KeyboardShortcut::new(mods, key))) {
                 request = Some(mode);
             }
@@ -559,23 +592,61 @@ impl Themisio {
         if kind == AppKind::Grid && ctx.input_mut(|i| i.consume_shortcut(&egui::KeyboardShortcut::new(mods, egui::Key::A))) {
             self.sheet_chat.open = !self.sheet_chat.open;
         }
-        if let Some(mode) = request
-            && (mode == Mode::Translate || writing)
+        // One pane at a time: the one opened last stays.
+        if self.sheet_chat.open && self.writer.panel {
+            if self.dock_last == Some(DockKind::Chat) {
+                self.sheet_chat.open = false;
+            } else {
+                self.writer.panel = false;
+            }
+        }
+        self.dock_last = if self.sheet_chat.open && kind == AppKind::Grid {
+            Some(DockKind::Chat)
+        } else if self.writer.panel {
+            Some(DockKind::Writer)
+        } else {
+            None
+        };
+        let dock_rect = dock.unwrap_or(Rect::from_min_size(pos2(area.right(), area.top()), vec2(crate::ai::kit::PANE_W, area.height())));
+        // Double-click a word: its meaning (the app has selected the word in this pass already).
+        if writing
+            && request.is_none()
+            && self.settings.ai.define_on_double_click
+            && !self.assist.open
+            && ctx.input(|i| i.pointer.button_double_clicked(egui::PointerButton::Primary))
+            && ctx.pointer_latest_pos().is_some_and(|p| area.contains(p))
+            && let Some(target) = self.hosts.get(kind).and_then(|h| h.ai_target())
+            && target.selection
+            && !target.text.trim().is_empty()
+            && target.text.trim().split_whitespace().count() <= 3
+            && target.text.chars().count() <= 48
+        {
+            let pos = ctx.pointer_latest_pos().unwrap_or(area.center());
+            self.assist.open_at(ctx, kind, Some(target), Mode::Define, pos, &self.settings.ai, lang);
+        }
+        if request == Some(Mode::Check) {
+            // The writing assistant checks the whole document and opens its panel.
+            if writing {
+                self.writer.check_now();
+            }
+        } else if let Some(mode) = request
+            && (matches!(mode, Mode::Translate | Mode::Define) || writing)
         {
             let pos = ctx.pointer_latest_pos().unwrap_or(area.center());
             let target = self.hosts.get(kind).and_then(|h| h.ai_target());
             self.assist.open_at(ctx, kind, target, mode, pos, &self.settings.ai, lang);
         }
-        // Auto-check after a pause in typing.
-        if writing && self.settings.ai.auto_check && !self.assist.open && self.settings.ai.any_ready() {
-            if self.assist.auto_poll_due(now) {
-                let target = self.hosts.get(kind).and_then(|h| h.ai_target());
-                self.assist.auto_tick(ctx, kind, target, &self.settings.ai, lang, now);
-            }
-        } else if !self.settings.ai.auto_check {
-            self.assist.forget_auto();
-        }
         let style = self.dialog_style(ctx);
+        // The writing assistant: underlines, cards, the score and its panel.
+        if writing && let Some(host) = self.hosts.get(kind) {
+            let out = self.writer.frame(ctx, host, kind, &mut self.settings.ai, lang, now, area, dock_rect, &style);
+            for (level, text) in out.notices {
+                self.notices.push(level, Some(kind.name()), text, now);
+            }
+            if out.save {
+                self.settings.save();
+            }
+        }
         if self.assist.open && self.assist.kind != Some(kind) {
             self.assist.close();
         }
@@ -590,11 +661,6 @@ impl Themisio {
         for act in acts {
             let Some(target) = self.assist.target.clone() else { continue };
             match act {
-                Act::Apply(i) => {
-                    let Some(sug) = self.assist.suggestions.get(i).cloned() else { continue };
-                    let r = self.hosts.get(kind).map_or(Err("closed".into()), |h| h.ai_replace(&target, &sug.original, &sug.replacement));
-                    self.assist.applied(i, r.is_ok());
-                }
                 Act::Replace(text) => match self.hosts.get(kind).map_or(Err("closed".into()), |h| h.ai_replace_all(&target, &text)) {
                     Ok(()) => {
                         self.notices.push(crate::notices::Level::Success, Some(kind.name()), t(lang, "Text replaced"), now);
@@ -613,7 +679,7 @@ impl Themisio {
             if !self.sheet_chat.open {
                 self.chat_button(ctx, area, lang, &style);
             }
-            let acts = self.sheet_chat.ui(ctx, area, &self.settings.ai, lang, &style);
+            let acts = self.sheet_chat.ui(ctx, dock_rect, &self.settings.ai, lang, &style);
             for act in acts {
                 match act {
                     crate::ai::sheet_chat::ChatAct::Send(prompt) => {
@@ -626,14 +692,25 @@ impl Themisio {
                     crate::ai::sheet_chat::ChatAct::Run(i) => {
                         let actions = self.sheet_chat.actions(i);
                         let mut results = Vec::new();
+                        let mut errors = Vec::new();
                         if let Some(h) = self.hosts.get(kind) {
                             for a in &actions {
                                 results.push(h.run_json(&a.command, a.params.clone()).map(|_| ()));
                             }
+                            // Check what was written: formulas that show errors are reported.
+                            let ranges: Vec<String> = actions.iter().flat_map(|a| crate::hosts::sheet_context::written_ranges(&a.command, &a.params)).collect();
+                            errors = h.sheet_errors(&ranges);
                         }
                         let failed = results.iter().filter(|r| r.is_err()).count();
                         let done = results.len() - failed;
-                        if failed == 0 {
+                        if failed == 0 && !errors.is_empty() {
+                            self.notices.push(
+                                crate::notices::Level::Error,
+                                Some(kind.name()),
+                                tf(lang, "{n} changes made, but {e} cells show errors", &[("n", &done.to_string()), ("e", &errors.len().to_string())]),
+                                now,
+                            );
+                        } else if failed == 0 {
                             self.notices.push(crate::notices::Level::Success, Some(kind.name()), tf(lang, "{n} changes made — Ctrl+Z undoes them", &[("n", &done.to_string())]), now);
                         } else {
                             self.notices.push(
@@ -643,7 +720,7 @@ impl Themisio {
                                 now,
                             );
                         }
-                        self.sheet_chat.ran(i, results);
+                        self.sheet_chat.ran(i, results, errors);
                     }
                 }
             }
@@ -674,8 +751,7 @@ impl Themisio {
     fn tab_action(&mut self, ctx: &egui::Context, kind: AppKind, tabs: &[crate::hosts::Tab], action: Option<TabAction>, now: f64) {
         let Some(action) = action else { return };
         let lang = self.lang;
-        let mut ordered: Vec<u64> = tabs.iter().filter(|t| self.pinned_tabs.contains(&(kind, t.id))).map(|t| t.id).collect();
-        ordered.extend(tabs.iter().filter(|t| !self.pinned_tabs.contains(&(kind, t.id))).map(|t| t.id));
+        let ordered: Vec<u64> = self.ordered_tabs(kind, tabs).iter().map(|t| t.id).collect();
         let mut toast = None;
         if let Some(host) = self.hosts.get(kind) {
             match action {
@@ -770,10 +846,24 @@ impl Themisio {
         self.close_queue = CloseQueue::default();
     }
 
+    /// The tabs in the order shown: pinned first, then the rest, each group in the order the
+    /// user dragged them into (tabs not placed yet keep the app's order, at the end).
+    fn ordered_tabs(&mut self, kind: AppKind, tabs: &[crate::hosts::Tab]) -> Vec<crate::hosts::Tab> {
+        let order = self.tab_order.entry(kind).or_default();
+        order.retain(|id| tabs.iter().any(|t| t.id == *id));
+        for t in tabs {
+            if !order.contains(&t.id) {
+                order.push(t.id);
+            }
+        }
+        let pos = |id: u64| order.iter().position(|x| *x == id).unwrap_or(usize::MAX);
+        let mut list: Vec<crate::hosts::Tab> = tabs.to_vec();
+        list.sort_by_key(|t| (!self.pinned_tabs.contains(&(kind, t.id)), pos(t.id)));
+        list
+    }
+
     fn tab_bar(&mut self, ui: &mut egui::Ui, rect: Rect, kind: AppKind, tabs: &[crate::hosts::Tab]) -> Option<TabAction> {
-        // Pinned tabs first, in their order; then the rest.
-        let mut ordered: Vec<&crate::hosts::Tab> = tabs.iter().filter(|t| self.pinned_tabs.contains(&(kind, t.id))).collect();
-        ordered.extend(tabs.iter().filter(|t| !self.pinned_tabs.contains(&(kind, t.id))));
+        let ordered = self.ordered_tabs(kind, tabs);
         let lang = self.lang;
         let v = ui.visuals().clone();
         let painter = ui.painter_at(rect);
@@ -787,25 +877,89 @@ impl Themisio {
         let n_pinned = ordered.iter().filter(|t| self.pinned_tabs.contains(&(kind, t.id))).count();
         let rest = ordered.len() - n_pinned;
         let w = ((avail - n_pinned as f32 * PINNED_W) / rest.max(1) as f32).clamp(96.0, 232.0);
-        let mut x = rect.left() + 6.0;
         let font = crate::theme::ui_font(ui.ctx(), 12.5);
         let all_ids: Vec<u64> = ordered.iter().map(|t| t.id).collect();
-        for (index, tab) in ordered.iter().enumerate() {
+        // Slots: where each tab belongs.
+        let mut slots = Vec::with_capacity(ordered.len());
+        let mut x = rect.left() + 6.0;
+        for tab in &ordered {
             let pinned = self.pinned_tabs.contains(&(kind, tab.id));
             let tw = if pinned { PINNED_W } else { w };
-            let r = Rect::from_min_size(pos2(x, rect.top() + 5.0), vec2(tw - 4.0, rect.height() - 5.0));
+            slots.push((x, tw, pinned));
             x += tw;
-            if r.left() > rect.right() - plus_w {
-                break;
+        }
+        // Dragging: the tab follows the pointer within its group, and the others make room.
+        let pointer = ui.ctx().pointer_latest_pos();
+        let dragging = self.tab_drag.filter(|(k, id, _)| *k == kind && all_ids.contains(id));
+        if let (Some((_, did, grab)), Some(p)) = (dragging, pointer)
+            && let Some(from) = all_ids.iter().position(|i| *i == did)
+        {
+            let pinned = slots[from].2;
+            let center = p.x - grab + slots[from].1 / 2.0;
+            let target = slots
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| s.2 == pinned)
+                .min_by(|a, b| ((a.1.0 + a.1.1 / 2.0) - center).abs().total_cmp(&((b.1.0 + b.1.1 / 2.0) - center).abs()))
+                .map_or(from, |(i, _)| i);
+            if target != from {
+                let mut ids = all_ids.clone();
+                let id = ids.remove(from);
+                ids.insert(target, id);
+                self.tab_order.insert(kind, ids);
+                ui.ctx().request_repaint();
             }
+        }
+        let mut drag_started = None;
+        let mut drag_stopped = false;
+        let mut draw_order: Vec<usize> = (0..ordered.len()).collect();
+        if let Some((_, did, _)) = dragging
+            && let Some(i) = all_ids.iter().position(|x| *x == did)
+        {
+            draw_order.retain(|k| *k != i);
+            draw_order.push(i);
+        }
+        for index in draw_order {
+            let tab = &ordered[index];
+            let (slot_x, tw, pinned) = slots[index];
             let id = ui.scope_id().with(("themisio-tab", kind, tab.id));
-            let resp = ui.interact(r, id, Sense::click());
-            let hover = ui.ctx().animate_bool_with_time(id.with("h"), resp.hovered(), 0.12);
+            let is_dragged = dragging.is_some_and(|(_, d, _)| d == tab.id);
+            let x = if is_dragged {
+                let group: Vec<&(f32, f32, bool)> = slots.iter().filter(|s| s.2 == pinned).collect();
+                let lo = group.first().map_or(slot_x, |s| s.0);
+                let hi = group.last().map_or(slot_x, |s| s.0);
+                let px = pointer.map_or(slot_x, |p| p.x - dragging.map_or(0.0, |d| d.2));
+                let x = px.clamp(lo, hi);
+                ui.ctx().animate_value_with_time(id.with("x"), x, 0.0)
+            } else {
+                ui.ctx().animate_value_with_time(id.with("x"), slot_x, 0.14)
+            };
+            let r = Rect::from_min_size(pos2(x, rect.top() + 5.0), vec2(tw - 4.0, rect.height() - 5.0));
+            if r.left() > rect.right() - plus_w {
+                continue;
+            }
+            let resp = ui.interact(r, id, Sense::click_and_drag());
+            if resp.drag_started()
+                && let Some(p) = resp.interact_pointer_pos()
+            {
+                drag_started = Some((tab.id, p.x - r.left()));
+            }
+            if resp.drag_stopped() {
+                drag_stopped = true;
+            }
+            if resp.dragged() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+            }
+            let hover = ui.ctx().animate_bool_with_time(id.with("h"), resp.hovered() || is_dragged, 0.12);
             let top = CornerRadius { nw: 8, ne: 8, sw: 0, se: 0 };
+            if is_dragged {
+                painter.add(egui::epaint::Shadow { offset: [0, 2], blur: 10, spread: 0, color: Color32::from_black_alpha(50) }.as_shape(r, top));
+                painter.rect_filled(r, top, v.panel_fill);
+            }
             if tab.active {
                 painter.rect_filled(r, top, v.panel_fill);
                 painter.rect_filled(Rect::from_min_size(r.left_top() + vec2(10.0, 0.0), vec2(r.width() - 20.0, 2.0)), CornerRadius::same(1), kind.accent());
-            } else if hover > 0.0 {
+            } else if hover > 0.0 && !is_dragged {
                 painter.rect_filled(r.shrink2(vec2(0.0, 2.0)), CornerRadius::same(7), v.widgets.hovered.weak_bg_fill.gamma_multiply(hover));
             }
             let text_color = if tab.active { v.strong_text_color() } else { v.text_color() };
@@ -851,6 +1005,16 @@ impl Themisio {
             }
             let resp = resp.on_hover_text(&tab.title);
             tab_menu(&resp, lang, tab.id, false, index + 1 < all_ids.len(), all_ids.len() > 1, &mut action);
+        }
+        if let Some((id, grab)) = drag_started {
+            self.tab_drag = Some((kind, id, grab));
+            // Dragging a tab also brings it to the front, as in Edge.
+            if ordered.iter().any(|t| t.id == id && !t.active) {
+                action = Some(TabAction::Activate(id));
+            }
+        }
+        if drag_stopped || (self.tab_drag.is_some() && !ui.ctx().input(|i| i.pointer.any_down())) {
+            self.tab_drag = None;
         }
         let plus = Rect::from_center_size(pos2((x + 16.0).min(rect.right() - plus_w / 2.0), rect.center().y + 2.0), vec2(26.0, 26.0));
         let presp = ui.interact(plus, ui.scope_id().with(("themisio-tab-new", kind)), Sense::click());
@@ -982,79 +1146,145 @@ impl Themisio {
         let (cur_presentation, cur_renderer) = (self.settings.presentation, self.settings.renderer);
         let restart = move |p: Presentation, r: Renderer| p != cur_presentation || r != cur_renderer;
         let response = modal.show(ctx, |ui| {
+            use crate::ai::kit;
             ui.set_style(style.clone());
-            ui.set_width(520.0);
-            if dialog_header(ui, t(lang, "Settings")) {
-                open = false;
-            }
-            ui.add_space(6.0);
+            let size = vec2(880.0, 600.0);
+            ui.set_width(size.x);
+            ui.set_height(size.y);
+            let full = ui.max_rect();
+            let pal = kit::palette(ui);
+            // The sidebar.
+            let side = Rect::from_min_size(full.min, vec2(200.0, size.y));
             let mut page = self.settings_page;
-            ui.horizontal(|ui| {
-                segmented(ui, &mut page, &[(SettingsPage::General, t(lang, "General")), (SettingsPage::Ai, t(lang, "AI"))]);
+            ui.scope_builder(UiBuilder::new().max_rect(side), |ui| {
+                ui.horizontal(|ui| {
+                    if let Some(logo) = crate::rail::logo(ui.ctx()) {
+                        ui.add(egui::Image::from_texture(&logo).fit_to_exact_size(vec2(26.0, 26.0)));
+                    }
+                    ui.label(RichText::new(t(lang, "Settings")).font(crate::theme::bold_font(ui.ctx(), 17.0)).color(pal.text));
+                });
+                ui.add_space(14.0);
+                ui.spacing_mut().item_spacing.y = 2.0;
+                let groups: [(&str, &[(SettingsPage, &'static str)]); 2] = [
+                    ("Themisio", &[(SettingsPage::General, "General"), (SettingsPage::Performance, "Performance"), (SettingsPage::Files, "Files"), (SettingsPage::About, "About")]),
+                    ("AI", &[(SettingsPage::Providers, "AI providers"), (SettingsPage::Features, "AI features"), (SettingsPage::Translation, "Translation"), (SettingsPage::Skills, "Skills")]),
+                ];
+                for (g, items) in groups {
+                    ui.add_space(8.0);
+                    ui.label(RichText::new(g).size(11.0).color(pal.muted));
+                    ui.add_space(2.0);
+                    for (pg, label) in items {
+                        if kit::nav_item(ui, page == *pg, t(lang, label)).clicked() {
+                            page = *pg;
+                        }
+                    }
+                }
             });
             if page != self.settings_page {
                 self.settings_page = page;
                 self.ai_ui.refresh();
             }
-            ui.add_space(10.0);
-            if self.settings_page == SettingsPage::Ai {
-                ui.set_width(600.0);
-                if self.ai_ui.show(ui, &mut self.settings.ai, lang) {
-                    ai_changed = true;
-                }
-                return;
-            }
-            egui::Grid::new("themisio-settings-grid").num_columns(2).spacing([18.0, 12.0]).min_col_width(128.0).show(ui, |ui| {
-                row_label(ui, t(lang, "Language"));
-                segmented(ui, &mut language, &[(LangPref::System, t(lang, "Same as Windows")), (LangPref::En, "English"), (LangPref::Vi, "Tiếng Việt")]);
-                ui.end_row();
-                row_label(ui, t(lang, "Theme"));
-                segmented(ui, &mut theme, &[(ThemePref::System, t(lang, "Same as Windows")), (ThemePref::Light, t(lang, "Light")), (ThemePref::Dark, t(lang, "Dark"))]);
-                ui.end_row();
-                row_label(ui, t(lang, "App bar"));
-                segmented(ui, &mut rail_mode, &[(RailMode::AutoHide, t(lang, "Auto-hide")), (RailMode::Pinned, t(lang, "Always show"))]);
-                ui.end_row();
-                row_label(ui, t(lang, "Smooth scrolling"));
-                segmented(ui, &mut smooth, &[(Smoothness::Off, t(lang, "Off")), (Smoothness::Standard, t(lang, "Standard")), (Smoothness::Fluid, t(lang, "Fluid"))])
-                    .on_hover_text(t(lang, "Fluid (like Microsoft Edge)"));
-                ui.end_row();
-                row_label(ui, t(lang, "Animations"));
-                segmented(ui, &mut motion, &[(Motion::System, t(lang, "Same as Windows")), (Motion::On, t(lang, "On")), (Motion::Off, t(lang, "Off"))])
-                    .on_hover_text(t(lang, "Same as Windows (Animation effects)"));
-                ui.end_row();
-                row_label(ui, t(lang, "Rendering"));
-                segmented(ui, &mut renderer, &[(Renderer::Gpu, "GPU (Direct3D 12)"), (Renderer::OpenGl, t(lang, "OpenGL (least memory)"))]);
-                ui.end_row();
-                row_label(ui, t(lang, "Frame pacing"));
-                segmented(ui, &mut presentation, &[(Presentation::Balanced, t(lang, "Balanced (VSync)")), (Presentation::LowLatency, t(lang, "Low latency"))])
-                    .on_hover_text(t(lang, "Low-latency (higher power use)"));
-                ui.end_row();
-                if restart(presentation, renderer) {
-                    ui.label("");
-                    ui.label(RichText::new(t(lang, "Restart Themisio to apply this.")).small().color(ui.visuals().hyperlink_color));
-                    ui.end_row();
-                }
-                row_label(ui, t(lang, "File types"));
-                ui.horizontal(|ui| {
-                    if ui.button(t(lang, "Register file types")).on_hover_text(t(lang, "Open documents, presentations, workbooks and PDFs with Themisio")).clicked() {
-                        register = Some(crate::assoc::register());
-                    }
-                    if cfg!(windows) && ui.button(t(lang, "Choose default apps…")).clicked() {
-                        crate::assoc::open_default_apps();
-                    }
+            ui.painter().line_segment([pos2(side.right() + 12.0, full.top()), pos2(side.right() + 12.0, full.top() + size.y)], egui::Stroke::new(1.0, pal.border));
+            // The page.
+            let content = Rect::from_min_max(pos2(side.right() + 28.0, full.top()), pos2(full.left() + size.x, full.top() + size.y));
+            ui.scope_builder(UiBuilder::new().max_rect(content), |ui| {
+                ui.scope_builder(UiBuilder::new().max_rect(content), |ui| {
+                    egui::ScrollArea::vertical().id_salt(("themisio-settings-page", self.settings_page as u8)).auto_shrink([false, false]).show(ui, |ui| {
+                        ui.set_width(ui.available_width() - 14.0);
+                        match self.settings_page {
+                            SettingsPage::General => {
+                                kit::page_title(ui, t(lang, "General"), t(lang, "Language, look and the app bar."));
+                                kit::card(ui, |ui| {
+                                    kit::setting_row(ui, t(lang, "Language"), t(lang, "For Themisio and all four apps."), |ui| {
+                                        segmented(ui, &mut language, &[(LangPref::System, t(lang, "Same as Windows")), (LangPref::En, "English"), (LangPref::Vi, "Tiếng Việt")]);
+                                    });
+                                    kit::row_rule(ui);
+                                    kit::setting_row(ui, t(lang, "Theme"), "", |ui| {
+                                        segmented(ui, &mut theme, &[(ThemePref::System, t(lang, "Same as Windows")), (ThemePref::Light, t(lang, "Light")), (ThemePref::Dark, t(lang, "Dark"))]);
+                                    });
+                                    kit::row_rule(ui);
+                                    kit::setting_row(ui, t(lang, "App bar"), t(lang, "Auto-hide leaves a thin line at the window's left edge; point at it to show the bar."), |ui| {
+                                        segmented(ui, &mut rail_mode, &[(RailMode::AutoHide, t(lang, "Auto-hide")), (RailMode::Pinned, t(lang, "Always show"))]);
+                                    });
+                                });
+                            }
+                            SettingsPage::Performance => {
+                                kit::page_title(ui, t(lang, "Performance"), t(lang, "Scrolling, animation and how Themisio draws."));
+                                kit::card(ui, |ui| {
+                                    kit::setting_row(ui, t(lang, "Smooth scrolling"), t(lang, "Fluid (like Microsoft Edge)"), |ui| {
+                                        segmented(ui, &mut smooth, &[(Smoothness::Off, t(lang, "Off")), (Smoothness::Standard, t(lang, "Standard")), (Smoothness::Fluid, t(lang, "Fluid"))]);
+                                    });
+                                    kit::row_rule(ui);
+                                    kit::setting_row(ui, t(lang, "Animations"), t(lang, "Same as Windows (Animation effects)"), |ui| {
+                                        segmented(ui, &mut motion, &[(Motion::System, t(lang, "Same as Windows")), (Motion::On, t(lang, "On")), (Motion::Off, t(lang, "Off"))]);
+                                    });
+                                    kit::row_rule(ui);
+                                    kit::setting_row(ui, t(lang, "Rendering"), t(lang, "OpenGL uses the least memory."), |ui| {
+                                        segmented(ui, &mut renderer, &[(Renderer::Gpu, "Direct3D 12"), (Renderer::OpenGl, "OpenGL")]);
+                                    });
+                                    kit::row_rule(ui);
+                                    kit::setting_row(ui, t(lang, "Frame pacing"), t(lang, "Low-latency (higher power use)"), |ui| {
+                                        segmented(ui, &mut presentation, &[(Presentation::Balanced, t(lang, "Balanced (VSync)")), (Presentation::LowLatency, t(lang, "Low latency"))]);
+                                    });
+                                });
+                                if restart(presentation, renderer) {
+                                    ui.add_space(8.0);
+                                    kit::notice(ui, kit::AMBER, kit::Icon::Warning, |ui| {
+                                        ui.label(t(lang, "Restart Themisio to apply this."));
+                                    });
+                                }
+                            }
+                            SettingsPage::Files => {
+                                kit::page_title(ui, t(lang, "Files"), t(lang, "Open documents, presentations, workbooks and PDFs with Themisio"));
+                                kit::card(ui, |ui| {
+                                    kit::setting_row(ui, t(lang, "Register file types"), t(lang, "For your Windows account only; no administrator rights needed."), |ui| {
+                                        if kit::primary(ui, t(lang, "Register")).clicked() {
+                                            register = Some(crate::assoc::register());
+                                        }
+                                    });
+                                    if cfg!(windows) {
+                                        kit::row_rule(ui);
+                                        kit::setting_row(ui, t(lang, "Default apps"), t(lang, "Then pick Themisio in Windows' Default apps."), |ui| {
+                                            if kit::secondary(ui, t(lang, "Choose default apps…")).clicked() {
+                                                crate::assoc::open_default_apps();
+                                            }
+                                        });
+                                    }
+                                });
+                            }
+                            SettingsPage::About => {
+                                kit::page_title(ui, t(lang, "About"), "");
+                                kit::card(ui, |ui| {
+                                    ui.horizontal(|ui| {
+                                        if let Some(logo) = crate::rail::logo(ui.ctx()) {
+                                            ui.add(egui::Image::from_texture(&logo).fit_to_exact_size(vec2(56.0, 56.0)));
+                                        }
+                                        ui.vertical(|ui| {
+                                            ui.label(RichText::new("Themisio").font(crate::theme::bold_font(ui.ctx(), 18.0)).color(pal.text));
+                                            ui.label(RichText::new(t(lang, "Make your documents glow.")).color(pal.muted));
+                                            ui.label(RichText::new(format!("{} {}", t(lang, "Version"), crate::VERSION)).size(12.0).color(pal.muted));
+                                        });
+                                    });
+                                    ui.add_space(8.0);
+                                    if kit::secondary(ui, t(lang, "About Themisio")).clicked() {
+                                        about = true;
+                                    }
+                                });
+                            }
+                            SettingsPage::Providers => ai_changed |= self.ai_ui.providers_page(ui, &mut self.settings.ai, lang),
+                            SettingsPage::Features => ai_changed |= self.ai_ui.features_page(ui, &mut self.settings.ai, lang),
+                            SettingsPage::Translation => ai_changed |= self.ai_ui.translation_page(ui, &mut self.settings.ai, lang),
+                            SettingsPage::Skills => ai_changed |= self.ai_ui.skills_page(ui, &mut self.settings.ai, lang),
+                        }
+                        ui.add_space(12.0);
+                    });
                 });
-                ui.end_row();
             });
-            ui.add_space(12.0);
-            ui.separator();
-            ui.add_space(2.0);
-            ui.horizontal(|ui| {
-                if ui.link(t(lang, "About Themisio")).clicked() {
-                    about = true;
+            let close_rect = Rect::from_min_size(pos2(content.right() - 30.0, content.top() - 4.0), vec2(28.0, 28.0));
+            ui.scope_builder(UiBuilder::new().max_rect(close_rect), |ui| {
+                if kit::icon_button(ui, kit::Icon::Close, t(lang, "Close")).clicked() {
+                    open = false;
                 }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(RichText::new(format!("Themisio {}", crate::VERSION)).small().weak());
-                });
             });
         });
         if response.should_close() {
@@ -1273,7 +1503,7 @@ impl eframe::App for Themisio {
             log::info!("startup: first frame shown {} ms after main", start.elapsed().as_millis());
         }
         let now = ctx.input(|i| i.time);
-        // An app asked to close the window (File ▸ Exit, its save prompt finished, its last
+        // An app asked to close the window (File › Exit, its save prompt finished, its last
         // document closed): close that app; during the close flow, move on to the next one.
         if egui::themisio::take_root_close_request() {
             match self.closing.as_ref().map(|c| c.stage) {
@@ -1326,7 +1556,9 @@ impl eframe::App for Themisio {
             && let Some(host) = self.hosts.get(kind)
         {
             let was = egui::themisio::set_translating(translating);
+            let t0 = std::time::Instant::now();
             host.logic(ctx, frame);
+            profile("logic", t0);
             egui::themisio::set_translating(was);
         }
     }
@@ -1356,9 +1588,16 @@ impl eframe::App for Themisio {
         let tabs = self.active.app().and_then(|k| self.hosts.get(k)).and_then(|h| h.tabs());
         let content_rect = if tabs.is_some() { Rect::from_min_max(pos2(app_rect.left(), app_rect.top() + TAB_BAR), app_rect.max) } else { app_rect };
 
+        // The AI pane docks at the right and the app gives it room.
+        let dock_target = self.active.app().is_some_and(|k| self.dock_open(k));
+        let dock_t = ctx.animate_bool_with_time(Id::unique("themisio-dock"), dock_target, 0.18);
+        let dock_w = crate::ai::kit::PANE_W * ease_out(dock_t);
+        let page_rect = if dock_w > 0.5 { Rect::from_min_max(content_rect.min, pos2(content_rect.right() - dock_w, content_rect.bottom())) } else { content_rect };
+        let dock_rect = Rect::from_min_max(pos2(content_rect.right() - dock_w, content_rect.top()), pos2(content_rect.right() - dock_w + crate::ai::kit::PANE_W, content_rect.bottom()));
+
         // The page on screen.
-        let mut child = ui.new_child(UiBuilder::new().max_rect(content_rect).id_salt(("themisio-page", self.active)));
-        child.set_clip_rect(content_rect);
+        let mut child = ui.new_child(UiBuilder::new().max_rect(page_rect).id_salt(("themisio-page", self.active)));
+        child.set_clip_rect(page_rect);
         match self.active {
             Page::Home => {
                 if let Some(action) = self.home.show(&mut child, self.lang, &self.settings.recent) {
@@ -1367,9 +1606,12 @@ impl eframe::App for Themisio {
             }
             Page::App(kind) => {
                 crate::deck_i18n::set_deck_vietnamese(self.translating_for(self.active));
+                balance_type(&ctx);
                 if let Some(host) = self.hosts.get(kind) {
                     let was = egui::themisio::set_translating(true);
+                    let t0 = std::time::Instant::now();
                     host.ui(&mut child, frame);
+                    profile("ui", t0);
                     egui::themisio::set_translating(was);
                 }
                 // Themisio's interface family in the app's fonts, and in Vietnamese the letters
@@ -1383,8 +1625,15 @@ impl eframe::App for Themisio {
                     let action = self.tab_bar(&mut bar_ui, bar, kind, tabs);
                     egui::themisio::set_translating(was);
                     self.tab_action(&ctx, kind, tabs, action, now);
+                    // The last document closed: back to Home, as a browser with no tabs left.
+                    let before = self.tab_count.insert(kind, tabs.len()).unwrap_or(0);
+                    if tabs.is_empty() && before > 0 && self.closing.is_none() {
+                        self.go(Page::Home, now);
+                    }
                 }
-                self.ai_frame(&ctx, kind, content_rect, now);
+                let t0 = std::time::Instant::now();
+                self.ai_frame(&ctx, kind, page_rect, (dock_w > 0.5).then_some(dock_rect), now);
+                profile("ai", t0);
             }
         }
 
@@ -1444,7 +1693,9 @@ impl eframe::App for Themisio {
         }
         self.closing_banner(ui, app_rect);
         let style = self.dialog_style(&ctx);
-        self.notices.ui(&ctx, app_rect, now, &style);
+        // Notices sit beside the AI pane, not over it.
+        let notice_rect = if dock_w > 0.5 { Rect::from_min_max(app_rect.min, pos2(app_rect.right() - dock_w, app_rect.bottom())) } else { app_rect };
+        self.notices.ui(&ctx, notice_rect, now, &style);
 
         // Close flow: did the app shown ask about unsaved work?
         if let Some(closing) = self.closing.as_mut()
@@ -1538,11 +1789,6 @@ fn dialog_header(ui: &mut egui::Ui, title: &str) -> bool {
     close
 }
 
-/// A setting's name in the left column, vertically centred on its row.
-fn row_label(ui: &mut egui::Ui, text: &str) {
-    ui.add(egui::Label::new(RichText::new(text).color(ui.visuals().weak_text_color().lerp_to_gamma(ui.visuals().text_color(), 0.6))).selectable(false));
-}
-
 /// A row of mutually exclusive choices in one rounded track; the chosen one is raised.
 fn segmented<T: PartialEq + Copy>(ui: &mut egui::Ui, value: &mut T, options: &[(T, &str)]) -> egui::Response {
     let v = ui.visuals().clone();
@@ -1553,7 +1799,7 @@ fn segmented<T: PartialEq + Copy>(ui: &mut egui::Ui, value: &mut T, options: &[(
         .corner_radius(CornerRadius::same(8))
         .inner_margin(egui::Margin::same(3))
         .show(ui, |ui| {
-            ui.horizontal(|ui| {
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 2.0;
                 for (option, label) in options {
                     let selected = *value == *option;
@@ -1619,4 +1865,41 @@ fn looks_untitled(title: &str) -> bool {
         ]
         .iter()
         .any(|w| stem.trim() == *w)
+}
+
+/// The apps' headings (dialog titles, page headings) at most this size, so dialogs over any app
+/// keep the proportions of the rest of the interface instead of shouting their title.
+/// Which AI pane is docked.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum DockKind {
+    Chat,
+    Writer,
+}
+
+/// With THEMISIO_PROFILE set, log the parts of a frame that take longer than 4 ms.
+fn profile(what: &str, since: std::time::Instant) {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if *ON.get_or_init(|| std::env::var_os("THEMISIO_PROFILE").is_some()) {
+        let ms = since.elapsed().as_secs_f64() * 1000.0;
+        if ms > 4.0 {
+            log::info!("profile: {what} {ms:.1} ms");
+        }
+    }
+}
+
+const MAX_HEADING: f32 = 15.0;
+
+/// Keep the apps' type in proportion (they set their styles when their theme changes; this
+/// runs every pass, so it holds after any change).
+fn balance_type(ctx: &egui::Context) {
+    let too_big = ctx.global_style().text_styles.get(&egui::TextStyle::Heading).is_some_and(|f| f.size > MAX_HEADING);
+    if too_big {
+        ctx.all_styles_mut(|s| {
+            if let Some(f) = s.text_styles.get_mut(&egui::TextStyle::Heading)
+                && f.size > MAX_HEADING
+            {
+                f.size = MAX_HEADING;
+            }
+        });
+    }
 }

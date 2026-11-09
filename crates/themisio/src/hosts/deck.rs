@@ -258,6 +258,59 @@ impl Host for DeckHost {
         Err("The text has changed since it was checked".into())
     }
 
+    fn ai_revision(&mut self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        if let Some(d) = self.app.session.active() {
+            d.uid.hash(&mut h);
+            d.revision.hash(&mut h);
+            d.selection.slide.hash(&mut h);
+        }
+        h.finish()
+    }
+
+    fn ai_units(&mut self) -> Vec<(serde_json::Value, String)> {
+        let Some(d) = self.app.session.active() else { return Vec::new() };
+        d.shapes()
+            .iter()
+            .filter_map(|sh| {
+                let text = sh.text.as_ref()?.text();
+                (text.trim().chars().count() >= 3).then(|| (serde_json::json!({"shape": sh.id.0}), text))
+            })
+            .collect()
+    }
+
+    fn ai_apply(&mut self, key: &serde_json::Value, original: &str, replacement: &str) -> Result<(), String> {
+        let shape = key["shape"].as_u64().ok_or("no text box")?;
+        let target = super::AiTarget { text: original.into(), selection: false, anchor: serde_json::json!({"shape": shape, "p0": 0, "p1": 10_000}), screen: None };
+        self.ai_replace(&target, original, replacement)
+    }
+
+    fn ai_focus(&mut self, key: &serde_json::Value, original: &str) {
+        let Some(shape) = key["shape"].as_u64() else { return };
+        if self.edit_shape(shape).is_err() {
+            return;
+        }
+        if let Some(paras) = self.paragraphs(shape as u32) {
+            for (p, line) in paras.iter().enumerate() {
+                if let Some(byte) = line.find(original) {
+                    let c0 = line[..byte].chars().count();
+                    let c1 = c0 + original.chars().count();
+                    let _ = self.app.run("text.select", serde_json::json!({"anchor": [p, c0], "caret": [p, c1]}));
+                    return;
+                }
+            }
+        }
+    }
+
+    fn ai_insert(&mut self, text: &str) -> Result<(), String> {
+        let editing = self.app.session.active().is_some_and(|d| d.selection.text.is_some());
+        if !editing {
+            return Err("Click into a text box first.".into());
+        }
+        self.app.run("text.insert", serde_json::json!({"text": text})).map(|_| ()).map_err(|e| e.to_string())
+    }
+
     fn ai_replace_all(&mut self, target: &super::AiTarget, text: &str) -> Result<(), String> {
         let shape = target.anchor["shape"].as_u64().ok_or("no shape")?;
         let p0 = target.anchor["p0"].as_u64().unwrap_or(0) as usize;

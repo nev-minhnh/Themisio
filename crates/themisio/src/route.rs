@@ -16,7 +16,7 @@ pub enum Intent {
     Edit,
     /// A PowerPoint Show (`.ppsx`): start the slide show, as a double-click does in PowerPoint.
     SlideShow,
-    /// A picture or text file given to PdfCraft: make a PDF from it (Create ▸ From file).
+    /// A picture or text file given to PdfCraft: make a PDF from it (Create › From file).
     ConvertToPdf,
 }
 

@@ -2,9 +2,65 @@
 
 Lịch sử: Themisio có tên **Ostium** ở 0.1.0 và 0.2.0.
 
+## 0.5.0 — 2026-11-09
+
+**Trợ lý viết kiểu Grammarly** (Documents, Presentation, CalcSheet)
+- Gạch chân ngay trong văn bản theo 4 tiêu chí: **Chính xác** (đỏ — chính tả, ngữ pháp, dấu câu),
+  **Rõ ràng** (xanh dương), **Cuốn hút** (xanh lá — từ lặp, từ nhạt), **Truyền đạt** (tím — giọng
+  văn, mức trang trọng). Rê chuột vào chỗ gạch chân: thẻ giải thích ngắn với **Nhận** / **Bỏ qua** /
+  **Thêm vào từ điển**.
+- Nút tròn ở góc hiện số gợi ý; bảng trợ lý viết **ghim bên phải** (tài liệu tự thu hẹp, không bị
+  che): **Điểm tổng 0–100**, ô đếm cho từng tiêu chí (bấm để lọc), nhận xét giọng văn so với mục tiêu,
+  và các thẻ:
+  - *Gợi ý*: danh sách gợi ý, bấm để xem chi tiết và nhảy tới chỗ đó trong tài liệu.
+  - *Mục tiêu*: lĩnh vực (Học thuật, Kinh doanh, Email, Kỹ thuật, Sáng tạo, Thân mật…), mức trang
+    trọng, người đọc, mục đích, biến thể tiếng Anh (Mỹ, Anh, Canada, Úc, Ấn Độ); **từ điển cá nhân**.
+  - *Viết*: tạo nội dung từ yêu cầu, viết lại trang trọng hơn / thân thiện hơn / ngắn gọn / mở rộng /
+    đơn giản hóa, lên ý tưởng, tóm tắt — chèn tại con trỏ hoặc thay phần đang chọn.
+  - *Báo cáo*: số từ, câu, độ dài câu, thời gian đọc, từ khác nhau, từ dùng nhiều; tiến bộ theo tuần.
+  - *Đạo văn*: tìm trên web các đoạn trùng (Claude, Claude Code hoặc Perplexity).
+- **Kiểm tra khi gõ** hoặc dán (bật trong Cài đặt), hoặc bấm *Kiểm tra ngay* / Ctrl+Alt+G. Chỉ
+  đoạn đã đổi được gửi lại; nhận một gợi ý không làm mất các gợi ý khác trong đoạn.
+- **Tra nghĩa**: nhấp đúp vào một từ (hoặc Ctrl+Alt+D, chuột phải › Tra nghĩa).
+
+**Trợ lý CalcSheet** — làm lại
+- Đọc dữ liệu chính xác: mỗi ô kèm địa chỉ (chữ cột, số hàng), giá trị như đang hiển thị (ngày ra
+  ngày, phần trăm ra phần trăm), công thức cạnh kết quả, và **thống kê từng cột trên toàn bộ hàng**
+  (kể cả tệp CSV/TSV lớn — trước đây báo "trang tính trống").
+- **Trả lời theo từng token** (streaming), hiển thị Markdown đúng: tiêu đề, in đậm/nghiêng, danh
+  sách, bảng, code.
+- **Enter để gửi**, Shift+Enter xuống dòng; nút Gửi/Dừng.
+- Sau khi chạy các thay đổi, Themisio **kiểm tra ô vừa ghi**: ô báo lỗi (#DIV/0!, #NAME?, #REF!…)
+  được liệt kê, kèm nút **Nhờ AI sửa**.
+- Khung chat ghim bên phải (bảng tính tự thu hẹp), giao diện mới: tin nhắn của bạn màu xanh logo,
+  thẻ "Thay đổi đề xuất" với ô chọn, Cho phép / Bỏ qua, Chi tiết.
+
+**Tốc độ**
+- Cuộn mượt với CSV/TSV và Excel lớn: phạm vi đã dùng của trang tính được tính một lần cho mỗi khối
+  hàng thay vì duyệt mọi hàng ở mỗi khung hình (300.000 hàng: ~35 ms → dưới 4 ms mỗi khung).
+- Thống kê vùng chọn trên thanh trạng thái (Tổng, Trung bình, Đếm) chỉ tính lại khi dữ liệu hoặc
+  vùng chọn đổi — chọn cả cột của bảng lớn không còn làm cuộn chậm.
+
+**Tab**
+- **Kéo thả để đổi thứ tự tab** (trong nhóm ghim và nhóm thường), tab bên cạnh trượt nhường chỗ.
+- Đóng tài liệu cuối cùng thì về Trang chủ; mở lại ứng dụng đó sẽ thấy màn hình bắt đầu (mới, mẫu,
+  gần đây) thay vì một vùng trống.
+
+**Cài đặt** — thiết kế lại
+- Thanh bên trái: Chung, Hiệu năng, Tệp, Giới thiệu; Nhà cung cấp AI, Tính năng AI, Dịch, Skills.
+- Mỗi trang là các thẻ với tên + giải thích bên trái và điều khiển bên phải; công tắc bật/tắt; nút
+  chính màu logo (xanh navy trên nền sáng, vàng trên nền tối).
+- Nhà cung cấp AI là các thẻ gọn: trạng thái (Sẵn sàng · n model / Cần API key / Tắt), bấm để mở
+  key, địa chỉ, model (chip có nút xóa), Tải danh sách model, Thử.
+
+**Giao diện**
+- Cỡ chữ cân đối hơn: tiêu đề hộp thoại của các ứng dụng không còn to quá cỡ (ví dụ hộp "Lưu thay
+  đổi" của Documents); dấu "›" thay "▸" (không còn ô vuông lỗi phông).
+- Thông báo nằm cạnh khung AI, không che khung chat.
+
 ## 0.4.0 — 2026-11-09
 
-**AI (Cài đặt ▸ AI)** — đăng nhập một lần, dùng cho Documents, Presentation và CalcSheet
+**AI (Cài đặt › AI)** — đăng nhập một lần, dùng cho Documents, Presentation và CalcSheet
 - Nhà cung cấp: Claude (Anthropic), ChatGPT (OpenAI), Gemini (Google AI Studio), Grok (xAI),
   Perplexity, llama.cpp, và bất kỳ API tương thích OpenAI nào (DeepSeek, MiniMax, OpenRouter,
   Mistral, Groq, Together… hoặc tự nhập). Key lưu trong Windows Credential Manager; key đã lưu

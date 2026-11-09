@@ -36,18 +36,21 @@ tự khôi phục). Themisio thêm phần dùng chung:
 - **Trang chủ**: tạo mới, mở tệp, tệp gần đây, kéo thả tệp vào bất kỳ đâu.
 - **Mở đúng ứng dụng theo phần mở rộng**: `.ppsx` bắt đầu trình chiếu ngay, ảnh thành PDF,
   tệp dùng chung (`.txt .md .html .json`) hỏi mở bằng gì (có thể ghi nhớ).
-- **AI, đăng nhập một lần** (Cài đặt ▸ AI): Claude, ChatGPT, Gemini (Google AI Studio), Grok,
+- **AI, đăng nhập một lần** (Cài đặt › AI): Claude, ChatGPT, Gemini (Google AI Studio), Grok,
   Perplexity, llama.cpp, API tương thích OpenAI bất kỳ (DeepSeek, MiniMax…), hoặc **Claude Code**
   với gói Claude của bạn. Key nằm trong Windows Credential Manager.
-  - **Trợ lý viết kiểu Grammarly** trong Documents, Presentation, CalcSheet: chuột phải ▸ Kiểm tra
-    văn bản bằng AI (Ctrl+Alt+G), Hỏi AI (Ctrl+Alt+K) với skills viết, tự kiểm tra khi ngừng gõ
-    (tùy chọn). Đổi model, effort, thinking ngay trên popup.
-  - **Dịch** chữ đang chọn (chuột phải ▸ Dịch, Ctrl+Alt+T): Google Translate hoặc AI.
-  - **Trợ lý CalcSheet**: chat phân tích số liệu, đề xuất công thức và biểu đồ, chỉ thực hiện khi
-    bạn cho phép.
-- **Menu chuột phải trên tab**: Lưu, Lưu thành, In, Ghim tab, Đóng các tab khác / bên phải.
+  - **Trợ lý viết kiểu Grammarly** trong Documents, Presentation, CalcSheet: gạch chân màu theo 4
+    tiêu chí (Chính xác, Rõ ràng, Cuốn hút, Truyền đạt), thẻ giải thích với Nhận / Bỏ qua / Thêm vào
+    từ điển, điểm tổng 0–100, mục tiêu viết (lĩnh vực, mức trang trọng, biến thể tiếng Anh), viết
+    lại / tạo nội dung / ý tưởng, báo cáo tiến bộ, kiểm tra đạo văn, tra nghĩa khi nhấp đúp. Kiểm
+    tra khi gõ (tùy chọn) hoặc Ctrl+Alt+G.
+  - **Dịch** chữ đang chọn (chuột phải › Dịch, Ctrl+Alt+T): Google Translate hoặc AI.
+  - **Trợ lý CalcSheet**: chat ghim bên phải, trả lời theo từng token, đọc dữ liệu kèm địa chỉ ô và
+    thống kê toàn bộ cột, đề xuất công thức và biểu đồ — chỉ thực hiện khi bạn cho phép, rồi tự
+    kiểm tra ô lỗi.
+- **Tab**: kéo thả để đổi thứ tự; chuột phải: Lưu, Lưu thành, In, Ghim tab, Đóng các tab khác / bên phải.
 - **Thông báo** thành công/thất bại cho mọi thao tác.
-- **Tiếng Việt và tiếng Anh** cho Themisio và cả bốn ứng dụng (Cài đặt ▸ Ngôn ngữ).
+- **Tiếng Việt và tiếng Anh** cho Themisio và cả bốn ứng dụng (Cài đặt › Ngôn ngữ).
 - **Giao diện Sáng/Tối đồng bộ** cho cả bốn ứng dụng.
 - **Mượt như Edge**: cuộn chuột trượt mượt, chuyển ứng dụng mờ dần, dải băng trượt nhẹ khi đổi
   tab, nút đổi màu mượt khi rê chuột, menu trượt vào chỗ. Theo cài đặt *Hiệu ứng hoạt ảnh* của
@@ -62,7 +65,7 @@ tự khôi phục). Themisio thêm phần dùng chung:
 1. Tải `Themisio-<phiên bản>-win-x64.zip` trong [Releases](../../releases) (hoặc trong mục
    *Artifacts* của lần chạy mới nhất ở tab **Actions**).
 2. Giải nén và chạy `Themisio-<phiên bản>.exe`. Không cần cài đặt.
-3. (Tùy chọn) Cài đặt ▸ Loại tệp ▸ **Đăng ký loại tệp**, rồi chọn Themisio trong *Ứng dụng mặc
+3. (Tùy chọn) Cài đặt › Tệp › **Đăng ký**, rồi chọn Themisio trong *Ứng dụng mặc
    định* của Windows.
 
 Lần đầu chạy, Windows SmartScreen có thể cảnh báo vì tệp chưa được ký số: chọn **More info ▸ Run
@@ -152,7 +155,14 @@ for all four apps, one light/dark theme across them, Edge-like motion (wheel smo
 fades, ribbons that ease in on tab change, hover fades, gliding menus — all following Windows'
 *Animation effects*), low memory use (lazy app start, small GPU allocations, working-set trimming
 in the background, an OpenGL mode), single-instance file hand-off, per-user file associations, and
-one close flow in which each app asks about its own unsaved work.
+one close flow in which each app asks about its own unsaved work. Tabs can be dragged to reorder.
+
+**AI, signed in once** (Claude, ChatGPT, Gemini, Grok, Perplexity, llama.cpp, any OpenAI-compatible API, or Claude Code with
+your Claude plan; keys in Windows Credential Manager): a Grammarly-style writing assistant (colour-coded underlines for
+correctness, clarity, engagement and delivery, an overall score, writing goals, a personal dictionary, rewrite and
+generate, a progress report, an originality check, double-click definitions), translation, and a CalcSheet assistant that
+streams its answers, reads every cell with its address plus whole-column statistics, and applies formulas and charts only
+when you allow it — then checks the cells it wrote for errors.
 
 **Download** the latest `Themisio-<version>-win-x64.zip` from [Releases](../../releases) or the
 *Artifacts* of the latest **Actions** run, unzip and run. **Build**: `scripts\fetch-upstream.ps1`

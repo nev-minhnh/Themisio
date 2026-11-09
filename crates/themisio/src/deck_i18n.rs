@@ -130,7 +130,7 @@ fn lookup(s: &str) -> Option<String> {
         return lookup(trimmed).map(|v| format!("{lead}{v}{trail}"));
     }
     // "Insert Picture…" / "Insert Picture..." / "Size:" share their stem's translation.
-    for suffix in ["…", "...", ":", " ▾", " ›", " ▸"] {
+    for suffix in ["…", "...", ":", " ▾", " ▸", " ›"] {
         if let Some(stem) = s.strip_suffix(suffix)
             && !stem.is_empty()
             && let Some(v) = d.exact.get(stem)
@@ -150,7 +150,7 @@ fn lookup(s: &str) -> Option<String> {
         }
     }
     // Paths of menus: "Insert › Table".
-    for sep in [" › ", " ▸ ", " > "] {
+    for sep in [" ▸ ", " › ", " > "] {
         if s.contains(sep) {
             let parts: Vec<String> = s.split(sep).map(|p| lookup(p).unwrap_or_else(|| p.to_string())).collect();
             let joined = parts.join(sep);

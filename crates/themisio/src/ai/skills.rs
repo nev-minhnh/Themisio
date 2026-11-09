@@ -1,7 +1,7 @@
 //! Writing skills: folders holding a `SKILL.md` (the format Claude Code uses), whose instructions
 //! are added to writing requests when the skill is active. Read from Themisio's own skills folder
 //! (`%APPDATA%\Themisio\skills`), Claude Code's (`~/.claude/skills`) and any folder added in
-//! Settings ▸ AI.
+//! Settings › AI.
 
 use std::path::{Path, PathBuf};
 
