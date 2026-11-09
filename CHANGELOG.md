@@ -2,6 +2,11 @@
 
 Lịch sử: Themisio có tên **Ostium** ở 0.1.0 và 0.2.0.
 
+## 0.5.1 — 2026-11-09
+- Popup AI (Tra nghĩa, Dịch, Hỏi AI) tự đóng khi nhấn **Esc** hoặc khi đưa chuột ra xa — không cần
+  bấm dấu ×. Popup Hỏi AI không tự đóng khi bạn đang gõ yêu cầu (Esc vẫn đóng), và không đóng khi
+  đang mở menu chọn model hay đang kéo popup.
+
 ## 0.5.0 — 2026-11-09
 
 **Trợ lý viết kiểu Grammarly** (Documents, Presentation, CalcSheet)

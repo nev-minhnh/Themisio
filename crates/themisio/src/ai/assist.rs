@@ -113,6 +113,8 @@ pub struct Assist {
     request: String,
     skills: Vec<String>,
     skill_list: Option<Vec<super::skills::Skill>>,
+    /// When the pointer moved away from the popup (it closes shortly after).
+    away_since: Option<f64>,
 }
 
 impl Default for Assist {
@@ -122,6 +124,7 @@ impl Default for Assist {
             kind: None,
             target: None,
             pos: pos2(200.0, 200.0),
+            away_since: None,
             mode: Mode::Check,
             model: String::new(),
             effort: String::new(),
@@ -216,6 +219,7 @@ impl Assist {
     /// waits for the request).
     pub fn open_at(&mut self, ctx: &egui::Context, kind: AppKind, target: Option<AiTarget>, mode: Mode, pos: Pos2, s: &AiSettings, lang: Lang) {
         self.open = true;
+        self.away_since = None;
         self.kind = Some(kind);
         self.pos = target.as_ref().and_then(|t| t.screen).unwrap_or(pos) + vec2(8.0, 8.0);
         self.target = target;
@@ -416,7 +420,7 @@ impl Assist {
         let mut close = false;
         let mut restart = false;
         let busy = self.job.is_some();
-        egui::Area::new(egui::Id::unique("themisio-assist"))
+        let area = egui::Area::new(egui::Id::unique("themisio-assist"))
             .order(egui::Order::Foreground)
             .default_pos(start)
             .movable(true)
@@ -486,6 +490,27 @@ impl Assist {
             });
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             close = true;
+        }
+        // Esc closes it; so does moving the pointer away (not while typing a request, or while one
+        // of its menus is open).
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            close = true;
+        }
+        let rect = area.response.rect.expand(24.0);
+        let typing = self.mode == Mode::Ask && (!self.request.trim().is_empty() || ctx.memory(|m| m.focused().is_some()));
+        let menu_open = egui::Popup::is_any_open(ctx);
+        let dragging = area.response.dragged() || ctx.input(|i| i.pointer.any_down());
+        match ctx.pointer_latest_pos() {
+            Some(p) if !rect.contains(p) && !typing && !menu_open && !dragging => {
+                let now = ctx.input(|i| i.time);
+                let since = *self.away_since.get_or_insert(now);
+                if now - since > 0.35 {
+                    close = true;
+                } else {
+                    ctx.request_repaint_after(std::time::Duration::from_millis(60));
+                }
+            }
+            _ => self.away_since = None,
         }
         if restart {
             self.start(ctx, s, lang);
