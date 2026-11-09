@@ -11,6 +11,31 @@ index a1605c6..d02022e 100644
                      let (r, resp) = ui.allocate_exact_size(vec2(200.0, 32.0), Sense::click());
                      resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), tl!(label)));
                      if resp.hovered() {
+diff --git a/crates/ui-egui/src/canvas.rs b/crates/ui-egui/src/canvas.rs
+index ac52931..420cf3f 100644
+--- a/crates/ui-egui/src/canvas.rs
++++ b/crates/ui-egui/src/canvas.rs
+@@ -18,7 +18,7 @@ mod balloons;
+ mod context_menu;
+ #[cfg(test)]
+ pub(crate) use context_menu::issue_heading;
+-mod cursor;
++pub mod cursor;
+ mod geometry;
+ mod input;
+ mod links;
+diff --git a/crates/ui-egui/src/canvas/context_menu.rs b/crates/ui-egui/src/canvas/context_menu.rs
+index 514a312..baad924 100644
+--- a/crates/ui-egui/src/canvas/context_menu.rs
++++ b/crates/ui-egui/src/canvas/context_menu.rs
+@@ -139,6 +139,7 @@ pub(super) fn context_menu(app: &mut WordApp, ui: &mut Ui) {
+     if selected_object || app.session.sel.focus.path.cell().is_some() {
+         item(ui, app, "View Alt Text…", "view.altTextPane", json!({"value": true}));
+     }
++    egui::themisio::context_menu_extras(ui);
+     // A selected picture, shape, text box or chart: its own items, then Wrap Text (#513).
+     let picture = crate::ribbon::has_picture_selected(&app.session);
+     let object = wordcraft_engine::cmd::objects::object_selection(&app.session).is_some();
 diff --git a/crates/ui-egui/src/chrome.rs b/crates/ui-egui/src/chrome.rs
 index eb7b0ca..a3e7fba 100644
 --- a/crates/ui-egui/src/chrome.rs

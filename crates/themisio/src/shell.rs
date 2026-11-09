@@ -81,6 +81,12 @@ struct Chooser {
     rest: Vec<PathBuf>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SettingsPage {
+    General,
+    Ai,
+}
+
 #[derive(PartialEq, Eq)]
 enum Dialog {
     Settings,
@@ -102,7 +108,6 @@ pub struct Themisio {
     chooser: Option<Chooser>,
     dialog: Option<Dialog>,
     closing: Option<Closing>,
-    toast: Option<(String, f64)>,
     motion: MotionState,
     home: HomeState,
     open_dialog: Option<Receiver<Vec<PathBuf>>>,
@@ -120,6 +125,20 @@ pub struct Themisio {
     /// The light/dark choice last given to the apps.
     applied_dark: Option<bool>,
     trim: crate::memory::Trim,
+    /// Pinned tabs (app, document id): shown first, compact, without a close button.
+    pinned_tabs: std::collections::HashSet<(AppKind, u64)>,
+    /// Success and failure popups for everything that finishes, in every app.
+    notices: crate::notices::Notices,
+    /// The writing assistant (check, ask, translate) and its auto-check.
+    assist: crate::ai::assist::Assist,
+    /// The CalcSheet assistant (chat).
+    sheet_chat: crate::ai::sheet_chat::SheetChat,
+    /// Settings ▸ AI's state, and which page of Settings is shown.
+    ai_ui: crate::ai::settings_ui::AiSettingsUi,
+    settings_page: SettingsPage,
+    /// Each app's tabs last pass, to notice a document that was saved or opened.
+    last_tabs: HashMap<AppKind, Vec<crate::hosts::Tab>>,
+    close_queue: CloseQueue,
 }
 
 /// Height of the document tab bar.
@@ -130,6 +149,21 @@ enum TabAction {
     Activate(u64),
     Close(u64),
     New,
+    /// Save, Save As or Print document `id` (its app's own command).
+    Command(u64, crate::hosts::DocCommand),
+    TogglePin(u64),
+    CloseOthers(u64),
+    CloseRight(u64),
+}
+
+/// Tabs waiting to be closed one after another (Close other tabs, Close tabs to the right):
+/// each app asks about unsaved changes in its own dialog, so the next one waits until the
+/// previous tab has gone. Given up when a tab stays (the user kept it) for a while.
+#[derive(Default)]
+struct CloseQueue {
+    kind: Option<AppKind>,
+    ids: Vec<u64>,
+    waiting: Option<(u64, f64)>,
 }
 
 /// Files from later launches, and where to put the context so they can wake the window.
@@ -152,6 +186,7 @@ impl Themisio {
         egui::themisio::set_root_close_intercept(true);
         egui::themisio::set_translator(Some(std::sync::Arc::new(crate::deck_i18n::translate)));
         egui::themisio::set_title_filter(Some(std::sync::Arc::new(crate::window_title)));
+        crate::ai::assist::install_menu_hook();
         let (reach, secs) = settings.smoothness.wheel();
         egui::themisio::set_wheel_smoothing(reach, secs);
         let mut shell = Self {
@@ -167,7 +202,6 @@ impl Themisio {
             chooser: None,
             dialog: None,
             closing: None,
-            toast: None,
             motion: MotionState::default(),
             home: HomeState::default(),
             open_dialog: None,
@@ -179,6 +213,14 @@ impl Themisio {
             rail_seen: f64::NEG_INFINITY,
             applied_dark: None,
             trim: crate::memory::Trim::default(),
+            pinned_tabs: Default::default(),
+            notices: Default::default(),
+            assist: Default::default(),
+            sheet_chat: Default::default(),
+            ai_ui: Default::default(),
+            settings_page: SettingsPage::General,
+            last_tabs: HashMap::new(),
+            close_queue: Default::default(),
         };
         shell.snapshots.insert(Page::Home, Snapshot::capture(ctx));
         if let Some(kind) = launch.new {
@@ -251,7 +293,7 @@ impl Themisio {
     }
 
     fn toast(&mut self, text: String, now: f64) {
-        self.toast = Some((text, now));
+        self.notices.say(None, text, now);
     }
 
     fn set_language(&mut self, pref: LangPref) {
@@ -486,7 +528,253 @@ impl Themisio {
 
     /// Edge-style document tabs for the app shown: click to switch, × or middle-click to close,
     /// + for a new document.
+    /// Whether the writing assistant is on for `kind` (and there is a model to use).
+    fn writing_on(&self, kind: AppKind) -> bool {
+        let a = &self.settings.ai.apps;
+        match kind {
+            AppKind::Word => a.documents,
+            AppKind::Deck => a.presentation,
+            AppKind::Grid => a.calcsheet,
+            AppKind::Pdf => false,
+        }
+    }
+
+    /// The writing assistant, translation and the CalcSheet assistant, over app `kind`.
+    fn ai_frame(&mut self, ctx: &egui::Context, kind: AppKind, area: Rect, now: f64) {
+        use crate::ai::assist::{Act, Mode};
+        let lang = self.lang;
+        let writing = self.writing_on(kind);
+        crate::ai::assist::set_menu_context(lang, writing);
+        if kind == AppKind::Pdf {
+            return;
+        }
+        // A right-click menu item or a shortcut.
+        let mut request = crate::ai::assist::take_request();
+        let mods = egui::Modifiers::CTRL | egui::Modifiers::ALT;
+        for (key, mode) in [(egui::Key::G, Mode::Check), (egui::Key::K, Mode::Ask), (egui::Key::T, Mode::Translate)] {
+            if ctx.input_mut(|i| i.consume_shortcut(&egui::KeyboardShortcut::new(mods, key))) {
+                request = Some(mode);
+            }
+        }
+        if kind == AppKind::Grid && ctx.input_mut(|i| i.consume_shortcut(&egui::KeyboardShortcut::new(mods, egui::Key::A))) {
+            self.sheet_chat.open = !self.sheet_chat.open;
+        }
+        if let Some(mode) = request
+            && (mode == Mode::Translate || writing)
+        {
+            let pos = ctx.pointer_latest_pos().unwrap_or(area.center());
+            let target = self.hosts.get(kind).and_then(|h| h.ai_target());
+            self.assist.open_at(ctx, kind, target, mode, pos, &self.settings.ai, lang);
+        }
+        // Auto-check after a pause in typing.
+        if writing && self.settings.ai.auto_check && !self.assist.open && self.settings.ai.any_ready() {
+            if self.assist.auto_poll_due(now) {
+                let target = self.hosts.get(kind).and_then(|h| h.ai_target());
+                self.assist.auto_tick(ctx, kind, target, &self.settings.ai, lang, now);
+            }
+        } else if !self.settings.ai.auto_check {
+            self.assist.forget_auto();
+        }
+        let style = self.dialog_style(ctx);
+        if self.assist.open && self.assist.kind != Some(kind) {
+            self.assist.close();
+        }
+        let (acts, changed) = self.assist.ui(ctx, area, &self.settings.ai, lang, &style);
+        if changed {
+            // The popup's choices become the defaults.
+            self.settings.ai.write_model = self.assist.model.clone();
+            self.settings.ai.effort = self.assist.effort.clone();
+            self.settings.ai.thinking = self.assist.thinking;
+            self.settings.save();
+        }
+        for act in acts {
+            let Some(target) = self.assist.target.clone() else { continue };
+            match act {
+                Act::Apply(i) => {
+                    let Some(sug) = self.assist.suggestions.get(i).cloned() else { continue };
+                    let r = self.hosts.get(kind).map_or(Err("closed".into()), |h| h.ai_replace(&target, &sug.original, &sug.replacement));
+                    self.assist.applied(i, r.is_ok());
+                }
+                Act::Replace(text) => match self.hosts.get(kind).map_or(Err("closed".into()), |h| h.ai_replace_all(&target, &text)) {
+                    Ok(()) => {
+                        self.notices.push(crate::notices::Level::Success, Some(kind.name()), t(lang, "Text replaced"), now);
+                        self.assist.close();
+                    }
+                    Err(e) => self.notices.push(crate::notices::Level::Error, Some(kind.name()), tf(lang, "Couldn't replace the text: {error}", &[("error", &e)]), now),
+                },
+                Act::Copy(text) => {
+                    ctx.copy_text(text);
+                    self.notices.push(crate::notices::Level::Success, None, t(lang, "Copied to the clipboard"), now);
+                }
+            }
+        }
+        // The CalcSheet assistant.
+        if kind == AppKind::Grid && self.settings.ai.apps.calcsheet {
+            if !self.sheet_chat.open {
+                self.chat_button(ctx, area, lang, &style);
+            }
+            let acts = self.sheet_chat.ui(ctx, area, &self.settings.ai, lang, &style);
+            for act in acts {
+                match act {
+                    crate::ai::sheet_chat::ChatAct::Send(prompt) => {
+                        let (context, docs) = match self.hosts.get(kind) {
+                            Some(h) => (h.sheet_context().unwrap_or_default(), h.command_docs(crate::ai::sheet_chat::ALLOWED)),
+                            None => (String::new(), String::new()),
+                        };
+                        self.sheet_chat.send(ctx, &self.settings.ai, lang, prompt, context, docs);
+                    }
+                    crate::ai::sheet_chat::ChatAct::Run(i) => {
+                        let actions = self.sheet_chat.actions(i);
+                        let mut results = Vec::new();
+                        if let Some(h) = self.hosts.get(kind) {
+                            for a in &actions {
+                                results.push(h.run_json(&a.command, a.params.clone()).map(|_| ()));
+                            }
+                        }
+                        let failed = results.iter().filter(|r| r.is_err()).count();
+                        let done = results.len() - failed;
+                        if failed == 0 {
+                            self.notices.push(crate::notices::Level::Success, Some(kind.name()), tf(lang, "{n} changes made — Ctrl+Z undoes them", &[("n", &done.to_string())]), now);
+                        } else {
+                            self.notices.push(
+                                crate::notices::Level::Error,
+                                Some(kind.name()),
+                                tf(lang, "{done} changes made, {failed} failed", &[("done", &done.to_string()), ("failed", &failed.to_string())]),
+                                now,
+                            );
+                        }
+                        self.sheet_chat.ran(i, results);
+                    }
+                }
+            }
+        }
+    }
+
+    /// The round button that opens the CalcSheet assistant.
+    fn chat_button(&mut self, ctx: &egui::Context, area: Rect, lang: Lang, style: &std::sync::Arc<egui::Style>) {
+        let size = vec2(132.0, 34.0);
+        let at = pos2(area.right() - size.x - 22.0, area.bottom() - size.y - 76.0);
+        let mut clicked = false;
+        egui::Area::new(Id::unique("themisio-chat-button")).order(egui::Order::Foreground).fixed_pos(at).show(ctx, |ui| {
+            ui.set_style(style.clone());
+            let (r, resp) = ui.allocate_exact_size(size, Sense::click());
+            let hover = ui.ctx().animate_bool_with_time(resp.id.with("h"), resp.hovered(), 0.12);
+            let fill = crate::theme::BRAND_DEEP.lerp_to_gamma(crate::theme::BRAND, hover);
+            ui.painter().add(egui::epaint::Shadow { offset: [0, 3], blur: 12, spread: 0, color: Color32::from_black_alpha(70) }.as_shape(r, CornerRadius::same(17)));
+            ui.painter().rect(r, CornerRadius::same(17), fill, egui::Stroke::new(1.0, crate::theme::GOLD.gamma_multiply(0.7)), egui::StrokeKind::Inside);
+            crate::ai::assist::draw_sparkle(ui.painter(), pos2(r.left() + 18.0, r.center().y), 7.5, crate::theme::GOLD);
+            ui.painter().text(pos2(r.left() + 32.0, r.center().y), egui::Align2::LEFT_CENTER, t(lang, "Ask AI"), crate::theme::ui_font(ctx, 13.0), crate::theme::CREAM);
+            clicked = resp.on_hover_text(t(lang, "CalcSheet assistant (Ctrl+Alt+A)")).clicked();
+        });
+        if clicked {
+            self.sheet_chat.open = true;
+        }
+    }
+
+    fn tab_action(&mut self, ctx: &egui::Context, kind: AppKind, tabs: &[crate::hosts::Tab], action: Option<TabAction>, now: f64) {
+        let Some(action) = action else { return };
+        let lang = self.lang;
+        let mut ordered: Vec<u64> = tabs.iter().filter(|t| self.pinned_tabs.contains(&(kind, t.id))).map(|t| t.id).collect();
+        ordered.extend(tabs.iter().filter(|t| !self.pinned_tabs.contains(&(kind, t.id))).map(|t| t.id));
+        let mut toast = None;
+        if let Some(host) = self.hosts.get(kind) {
+            match action {
+                TabAction::Activate(id) => host.activate_tab(id),
+                TabAction::Close(id) => host.close_tab(id),
+                TabAction::New => host.new_document(ctx),
+                TabAction::Command(id, cmd) => {
+                    host.activate_tab(id);
+                    if let Err(e) = host.command(cmd) {
+                        toast = Some(tf(lang, "Couldn't do that: {error}", &[("error", &e)]));
+                    }
+                }
+                TabAction::TogglePin(id) => {
+                    if !self.pinned_tabs.remove(&(kind, id)) {
+                        self.pinned_tabs.insert((kind, id));
+                    }
+                }
+                TabAction::CloseOthers(id) => {
+                    self.close_queue = CloseQueue { kind: Some(kind), ids: ordered.iter().copied().filter(|t| *t != id).collect(), waiting: None };
+                }
+                TabAction::CloseRight(id) => {
+                    let after = ordered.iter().position(|t| *t == id).map_or(Vec::new(), |i| ordered[i + 1..].to_vec());
+                    self.close_queue = CloseQueue { kind: Some(kind), ids: after, waiting: None };
+                }
+            }
+        }
+        if let Some(text) = toast {
+            self.toast(text, now);
+        }
+    }
+
+    /// The apps' own messages, and the saves and opens they don't announce, as notifications.
+    fn gather_notices(&mut self, now: f64) {
+        let lang = self.lang;
+        for kind in AppKind::ALL {
+            let Some(host) = self.hosts.get(kind) else {
+                self.last_tabs.remove(&kind);
+                continue;
+            };
+            let said = host.take_notices();
+            let tabs = host.tabs().unwrap_or_default();
+            let mut extra = Vec::new();
+            if said.is_empty()
+                && let Some(prev) = self.last_tabs.get(&kind)
+            {
+                for tab in &tabs {
+                    match prev.iter().find(|p| p.id == tab.id) {
+                        Some(p) if p.dirty && !tab.dirty && p.title.trim_end_matches('*') != "" => {
+                            extra.push(tf(lang, "Saved {name}", &[("name", tab.title.trim_end_matches(['*', ' ']))]));
+                        }
+                        None if !prev.is_empty() && !looks_untitled(&tab.title) => {
+                            extra.push(tf(lang, "Opened {name}", &[("name", &tab.title)]));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            self.last_tabs.insert(kind, tabs);
+            for text in said.into_iter().chain(extra) {
+                self.notices.say(Some(kind.name()), text, now);
+            }
+        }
+    }
+
+    /// Close the queued tabs one at a time (see [`CloseQueue`]).
+    fn drain_close_queue(&mut self, now: f64) {
+        let Some(kind) = self.close_queue.kind else { return };
+        let Some(host) = self.hosts.get(kind) else {
+            self.close_queue = CloseQueue::default();
+            return;
+        };
+        let open: Vec<u64> = host.tabs().unwrap_or_default().iter().map(|t| t.id).collect();
+        if let Some((id, since)) = self.close_queue.waiting {
+            if open.contains(&id) {
+                // Still asking about unsaved changes, or kept: give up after a while.
+                if now - since > 60.0 {
+                    self.close_queue = CloseQueue::default();
+                }
+                return;
+            }
+            self.close_queue.waiting = None;
+        }
+        while let Some(id) = (!self.close_queue.ids.is_empty()).then(|| self.close_queue.ids.remove(0)) {
+            if !open.contains(&id) {
+                continue;
+            }
+            self.pinned_tabs.remove(&(kind, id));
+            host.close_tab(id);
+            self.close_queue.waiting = Some((id, now));
+            return;
+        }
+        self.close_queue = CloseQueue::default();
+    }
+
     fn tab_bar(&mut self, ui: &mut egui::Ui, rect: Rect, kind: AppKind, tabs: &[crate::hosts::Tab]) -> Option<TabAction> {
+        // Pinned tabs first, in their order; then the rest.
+        let mut ordered: Vec<&crate::hosts::Tab> = tabs.iter().filter(|t| self.pinned_tabs.contains(&(kind, t.id))).collect();
+        ordered.extend(tabs.iter().filter(|t| !self.pinned_tabs.contains(&(kind, t.id))));
+        let lang = self.lang;
         let v = ui.visuals().clone();
         let painter = ui.painter_at(rect);
         let strip = if v.dark_mode { v.extreme_bg_color.gamma_multiply(0.85) } else { v.faint_bg_color.lerp_to_gamma(Color32::BLACK, 0.05) };
@@ -495,12 +783,18 @@ impl Themisio {
         let mut action = None;
         let plus_w = 34.0;
         let avail = (rect.width() - plus_w - 12.0).max(80.0);
-        let w = (avail / tabs.len().max(1) as f32).clamp(96.0, 232.0);
+        const PINNED_W: f32 = 44.0;
+        let n_pinned = ordered.iter().filter(|t| self.pinned_tabs.contains(&(kind, t.id))).count();
+        let rest = ordered.len() - n_pinned;
+        let w = ((avail - n_pinned as f32 * PINNED_W) / rest.max(1) as f32).clamp(96.0, 232.0);
         let mut x = rect.left() + 6.0;
         let font = crate::theme::ui_font(ui.ctx(), 12.5);
-        for tab in tabs {
-            let r = Rect::from_min_size(pos2(x, rect.top() + 5.0), vec2(w - 4.0, rect.height() - 5.0));
-            x += w;
+        let all_ids: Vec<u64> = ordered.iter().map(|t| t.id).collect();
+        for (index, tab) in ordered.iter().enumerate() {
+            let pinned = self.pinned_tabs.contains(&(kind, tab.id));
+            let tw = if pinned { PINNED_W } else { w };
+            let r = Rect::from_min_size(pos2(x, rect.top() + 5.0), vec2(tw - 4.0, rect.height() - 5.0));
+            x += tw;
             if r.left() > rect.right() - plus_w {
                 break;
             }
@@ -515,6 +809,21 @@ impl Themisio {
                 painter.rect_filled(r.shrink2(vec2(0.0, 2.0)), CornerRadius::same(7), v.widgets.hovered.weak_bg_fill.gamma_multiply(hover));
             }
             let text_color = if tab.active { v.strong_text_color() } else { v.text_color() };
+            if pinned {
+                // A pinned tab: the app's mark and the first letters of the name, no close button.
+                let initials: String = tab.title.chars().filter(|c| !c.is_whitespace()).take(2).collect();
+                painter.circle_filled(pos2(r.left() + 11.0, r.center().y), 3.5, kind.accent());
+                painter.text(pos2(r.left() + 25.0, r.center().y), egui::Align2::CENTER_CENTER, initials, font.clone(), text_color);
+                if tab.dirty {
+                    painter.circle_filled(pos2(r.right() - 5.0, r.top() + 7.0), 2.5, text_color.gamma_multiply(0.8));
+                }
+                if resp.clicked() && !tab.active {
+                    action = Some(TabAction::Activate(tab.id));
+                }
+                let resp = resp.on_hover_text(&tab.title);
+                tab_menu(&resp, lang, tab.id, true, index + 1 < all_ids.len(), all_ids.len() > 1, &mut action);
+                continue;
+            }
             painter.circle_filled(pos2(r.left() + 14.0, r.center().y), 4.0, kind.accent().gamma_multiply(if tab.active { 1.0 } else { 0.6 }));
             let close = Rect::from_center_size(pos2(r.right() - 14.0, r.center().y), vec2(18.0, 18.0));
             let title_w = close.left() - (r.left() + 26.0) - 4.0;
@@ -540,7 +849,8 @@ impl Themisio {
             } else if resp.clicked() && !tab.active {
                 action = Some(TabAction::Activate(tab.id));
             }
-            resp.on_hover_text(&tab.title);
+            let resp = resp.on_hover_text(&tab.title);
+            tab_menu(&resp, lang, tab.id, false, index + 1 < all_ids.len(), all_ids.len() > 1, &mut action);
         }
         let plus = Rect::from_center_size(pos2((x + 16.0).min(rect.right() - plus_w / 2.0), rect.center().y + 2.0), vec2(26.0, 26.0));
         let presp = ui.interact(plus, ui.scope_id().with(("themisio-tab-new", kind)), Sense::click());
@@ -667,15 +977,33 @@ impl Themisio {
         let mut renderer = self.settings.renderer;
         let mut register: Option<Result<(), String>> = None;
         let mut about = false;
+        let mut ai_changed = false;
         let (modal, style) = self.modal(ctx, "themisio-settings");
-        let restart = |p: Presentation, r: Renderer| p != self.settings.presentation || r != self.settings.renderer;
+        let (cur_presentation, cur_renderer) = (self.settings.presentation, self.settings.renderer);
+        let restart = move |p: Presentation, r: Renderer| p != cur_presentation || r != cur_renderer;
         let response = modal.show(ctx, |ui| {
             ui.set_style(style.clone());
             ui.set_width(520.0);
             if dialog_header(ui, t(lang, "Settings")) {
                 open = false;
             }
+            ui.add_space(6.0);
+            let mut page = self.settings_page;
+            ui.horizontal(|ui| {
+                segmented(ui, &mut page, &[(SettingsPage::General, t(lang, "General")), (SettingsPage::Ai, t(lang, "AI"))]);
+            });
+            if page != self.settings_page {
+                self.settings_page = page;
+                self.ai_ui.refresh();
+            }
             ui.add_space(10.0);
+            if self.settings_page == SettingsPage::Ai {
+                ui.set_width(600.0);
+                if self.ai_ui.show(ui, &mut self.settings.ai, lang) {
+                    ai_changed = true;
+                }
+                return;
+            }
             egui::Grid::new("themisio-settings-grid").num_columns(2).spacing([18.0, 12.0]).min_col_width(128.0).show(ui, |ui| {
                 row_label(ui, t(lang, "Language"));
                 segmented(ui, &mut language, &[(LangPref::System, t(lang, "Same as Windows")), (LangPref::En, "English"), (LangPref::Vi, "Tiếng Việt")]);
@@ -731,6 +1059,9 @@ impl Themisio {
         });
         if response.should_close() {
             open = false;
+        }
+        if ai_changed {
+            self.settings.save();
         }
         if language != self.settings.language {
             self.set_language(language);
@@ -836,25 +1167,6 @@ impl Themisio {
         }
     }
 
-    fn toast_ui(&mut self, ctx: &egui::Context, rect: Rect, now: f64) {
-        let Some((text, at)) = &self.toast else { return };
-        let age = now - at;
-        if age > 4.5 {
-            self.toast = None;
-            return;
-        }
-        let fade = (if age < 0.2 { age / 0.2 } else if age > 4.0 { (4.5 - age) / 0.5 } else { 1.0 }) as f32;
-        let p = Palette::current(ctx);
-        let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, Id::unique("themisio-toast")));
-        let galley = painter.layout(text.clone(), crate::theme::ui_font(ctx, 13.5), p.accent_text, 520.0);
-        let size = galley.size() + vec2(28.0, 18.0);
-        let pos = pos2(rect.center().x - size.x / 2.0, rect.bottom() - 32.0 - size.y + (1.0 - ease_out(fade)) * 12.0);
-        let r = Rect::from_min_size(pos, size);
-        painter.rect_filled(r, CornerRadius::same(10), p.accent.gamma_multiply(fade));
-        painter.galley(r.min + vec2(14.0, 9.0), galley, p.accent_text.gamma_multiply(fade));
-        ctx.request_repaint();
-    }
-
     fn shortcuts(&mut self, ctx: &egui::Context, now: f64) {
         use egui::{Key, KeyboardShortcut, Modifiers};
         let mods = Modifiers::CTRL | Modifiers::ALT;
@@ -873,6 +1185,17 @@ impl Themisio {
         if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(mods, Key::O))) {
             self.open_dialog(ctx);
         }
+    }
+}
+
+/// Open a folder in Explorer.
+pub fn open_folder(path: &Path) {
+    #[cfg(windows)]
+    let result = std::process::Command::new("explorer").arg(path).spawn();
+    #[cfg(not(windows))]
+    let result = std::process::Command::new("xdg-open").arg(path).spawn();
+    if let Err(e) = result {
+        log::warn!("open {}: {e}", path.display());
     }
 }
 
@@ -995,6 +1318,8 @@ impl eframe::App for Themisio {
         let motion = self.effective_motion(now);
         egui::themisio::set_motion(motion);
         self.trim.tick(ctx, now);
+        self.drain_close_queue(now);
+        self.gather_notices(now);
         crate::deck_i18n::set_deck_vietnamese(self.translating_for(self.active));
         let translating = self.active.app().is_some();
         if let Some(kind) = self.active.app()
@@ -1057,15 +1382,9 @@ impl eframe::App for Themisio {
                     let was = egui::themisio::set_translating(true);
                     let action = self.tab_bar(&mut bar_ui, bar, kind, tabs);
                     egui::themisio::set_translating(was);
-                    if let Some(host) = self.hosts.get(kind) {
-                        match action {
-                            Some(TabAction::Activate(id)) => host.activate_tab(id),
-                            Some(TabAction::Close(id)) => host.close_tab(id),
-                            Some(TabAction::New) => host.new_document(&ctx),
-                            None => {}
-                        }
-                    }
+                    self.tab_action(&ctx, kind, tabs, action, now);
                 }
+                self.ai_frame(&ctx, kind, content_rect, now);
             }
         }
 
@@ -1124,7 +1443,8 @@ impl eframe::App for Themisio {
             None => {}
         }
         self.closing_banner(ui, app_rect);
-        self.toast_ui(&ctx, app_rect, now);
+        let style = self.dialog_style(&ctx);
+        self.notices.ui(&ctx, app_rect, now, &style);
 
         // Close flow: did the app shown ask about unsaved work?
         if let Some(closing) = self.closing.as_mut()
@@ -1261,4 +1581,42 @@ fn segmented<T: PartialEq + Copy>(ui: &mut egui::Ui, value: &mut T, options: &[(
             .response
         })
         .inner
+}
+
+/// A tab's right-click menu: Save, Save As, Print; Pin; Close, Close other tabs, Close tabs to
+/// the right.
+fn tab_menu(resp: &egui::Response, lang: Lang, id: u64, pinned: bool, has_right: bool, has_others: bool, action: &mut Option<TabAction>) {
+    use crate::hosts::DocCommand;
+    resp.context_menu(|ui| {
+        ui.set_min_width(210.0);
+        let mut item = |ui: &mut egui::Ui, label: &str, shortcut: &str, enabled: bool, a: TabAction| {
+            let button = egui::Button::new(label).shortcut_text(shortcut);
+            if ui.add_enabled(enabled, button).clicked() {
+                *action = Some(a);
+                ui.close();
+            }
+        };
+        item(ui, t(lang, "Save"), "Ctrl+S", true, TabAction::Command(id, DocCommand::Save));
+        item(ui, t(lang, "Save As…"), "F12", true, TabAction::Command(id, DocCommand::SaveAs));
+        item(ui, t(lang, "Print…"), "Ctrl+P", true, TabAction::Command(id, DocCommand::Print));
+        ui.separator();
+        item(ui, if pinned { t(lang, "Unpin tab") } else { t(lang, "Pin tab") }, "", true, TabAction::TogglePin(id));
+        ui.separator();
+        item(ui, t(lang, "Close tab"), "Ctrl+W", true, TabAction::Close(id));
+        item(ui, t(lang, "Close other tabs"), "", has_others, TabAction::CloseOthers(id));
+        item(ui, t(lang, "Close tabs to the right"), "", has_right, TabAction::CloseRight(id));
+    });
+}
+
+/// A new document's name (Document1, Presentation2, Book1…), which needs no "Opened" notice.
+fn looks_untitled(title: &str) -> bool {
+    let t = title.trim().trim_end_matches(['*', ' ']);
+    let stem: String = t.chars().take_while(|c| !c.is_ascii_digit()).collect();
+    let digits = t[stem.len()..].chars().all(|c| c.is_ascii_digit()) && t.len() > stem.len();
+    digits
+        && [
+            "Document", "Presentation", "Book", "Workbook", "Untitled", "Tài liệu", "Bản trình bày", "Sổ làm việc", "Bảng tính", "Trình chiếu",
+        ]
+        .iter()
+        .any(|w| stem.trim() == *w)
 }

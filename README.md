@@ -36,6 +36,17 @@ tự khôi phục). Themisio thêm phần dùng chung:
 - **Trang chủ**: tạo mới, mở tệp, tệp gần đây, kéo thả tệp vào bất kỳ đâu.
 - **Mở đúng ứng dụng theo phần mở rộng**: `.ppsx` bắt đầu trình chiếu ngay, ảnh thành PDF,
   tệp dùng chung (`.txt .md .html .json`) hỏi mở bằng gì (có thể ghi nhớ).
+- **AI, đăng nhập một lần** (Cài đặt ▸ AI): Claude, ChatGPT, Gemini (Google AI Studio), Grok,
+  Perplexity, llama.cpp, API tương thích OpenAI bất kỳ (DeepSeek, MiniMax…), hoặc **Claude Code**
+  với gói Claude của bạn. Key nằm trong Windows Credential Manager.
+  - **Trợ lý viết kiểu Grammarly** trong Documents, Presentation, CalcSheet: chuột phải ▸ Kiểm tra
+    văn bản bằng AI (Ctrl+Alt+G), Hỏi AI (Ctrl+Alt+K) với skills viết, tự kiểm tra khi ngừng gõ
+    (tùy chọn). Đổi model, effort, thinking ngay trên popup.
+  - **Dịch** chữ đang chọn (chuột phải ▸ Dịch, Ctrl+Alt+T): Google Translate hoặc AI.
+  - **Trợ lý CalcSheet**: chat phân tích số liệu, đề xuất công thức và biểu đồ, chỉ thực hiện khi
+    bạn cho phép.
+- **Menu chuột phải trên tab**: Lưu, Lưu thành, In, Ghim tab, Đóng các tab khác / bên phải.
+- **Thông báo** thành công/thất bại cho mọi thao tác.
 - **Tiếng Việt và tiếng Anh** cho Themisio và cả bốn ứng dụng (Cài đặt ▸ Ngôn ngữ).
 - **Giao diện Sáng/Tối đồng bộ** cho cả bốn ứng dụng.
 - **Mượt như Edge**: cuộn chuột trượt mượt, chuyển ứng dụng mờ dần, dải băng trượt nhẹ khi đổi

@@ -9,6 +9,7 @@
 #![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+mod ai;
 mod app_kind;
 mod assoc;
 mod ctx_state;
@@ -21,6 +22,7 @@ mod instance;
 mod logging;
 mod memory;
 mod motion;
+mod notices;
 mod rail;
 mod route;
 mod settings;

@@ -75,6 +75,19 @@ EDITS = [
      "            LeftPanel::CalculationOrder => crate::calc_order_ui::panel(app, ui, &t),\n        },\n    );",
      "            LeftPanel::CalculationOrder => crate::calc_order_ui::panel(app, ui, &t),\n            }\n        },\n    );"),
 
+    # ---- Themisio's items (Translate, writing assistant) at the end of the right-click menus ----
+    ("wordcraft/crates/ui-egui/src/canvas/context_menu.rs",
+     "    // A selected picture, shape, text box or chart: its own items, then Wrap Text (#513).\n",
+     "    egui::themisio::context_menu_extras(ui);\n    // A selected picture, shape, text box or chart: its own items, then Wrap Text (#513).\n"),
+    ("deckcraft/crates/ui-egui/src/canvas/context_menu.rs",
+     "        } else {\n            slide_items(app, ui);\n        }\n    });\n}",
+     "        } else {\n            slide_items(app, ui);\n        }\n        egui::themisio::context_menu_extras(ui);\n    });\n}"),
+    ("gridcraft/crates/ui-egui/src/grid/menus.rs",
+     "                        other => app.run_or_alert(other, json!({})),\n                    }\n                }\n            }\n        });\n    });",
+     "                        other => app.run_or_alert(other, json!({})),\n                    }\n                }\n            }\n            if egui::themisio::context_menu_extras(ui) {\n                close = true;\n            }\n        });\n    });"),
+    ("wordcraft/crates/ui-egui/src/canvas.rs",
+     "\nmod cursor;\n",
+     "\npub mod cursor;\n"),
 ]
 
 def main() -> int:
@@ -82,11 +95,13 @@ def main() -> int:
     for rel, old, new in EDITS:
         path = ROOT / rel
         text = path.read_text(encoding="utf-8")
-        if old in text:
+        # An edit that inserts keeps `old` inside `new`: test for `new` first, so running the
+        # script again changes nothing.
+        if new and new in text or (not new and old not in text and _applied(text, rel)):
+            print(f"already  {rel}")
+        elif old in text:
             path.write_text(text.replace(old, new, 1), encoding="utf-8")
             print(f"patched  {rel}")
-        elif new and new in text or (not new and old not in text and _applied(text, rel)):
-            print(f"already  {rel}")
         else:
             print(f"MISSING  {rel}: upstream changed; update scripts/patch-upstream.py", file=sys.stderr)
             failed += 1

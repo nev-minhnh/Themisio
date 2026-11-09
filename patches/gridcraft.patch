@@ -11,6 +11,20 @@ index a95878e..2fe743e 100644
          }
      }
  }
+diff --git a/crates/ui-egui/src/grid/menus.rs b/crates/ui-egui/src/grid/menus.rs
+index e9ee1a9..b4f28bd 100644
+--- a/crates/ui-egui/src/grid/menus.rs
++++ b/crates/ui-egui/src/grid/menus.rs
+@@ -214,6 +214,9 @@ pub(super) fn context_menu(app: &mut SheetApp, ui: &mut egui::Ui) {
+                     }
+                 }
+             }
++            if egui::themisio::context_menu_extras(ui) {
++                close = true;
++            }
+         });
+     });
+     // A quick right-click presses and releases in one frame, and the menu's corner snaps to the
 diff --git a/crates/ui-egui/src/ribbon.rs b/crates/ui-egui/src/ribbon.rs
 index 47f1eab..774b622 100644
 --- a/crates/ui-egui/src/ribbon.rs

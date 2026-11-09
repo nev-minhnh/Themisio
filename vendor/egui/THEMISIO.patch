@@ -1,6 +1,6 @@
-diff -ruN a/crates/egui/src/containers/area.rs b/crates/egui/src/containers/area.rs
---- a/crates/egui/src/containers/area.rs	2026-11-08 03:59:24.615502221 +0700
-+++ b/crates/egui/src/containers/area.rs	2026-11-08 03:59:24.685515457 +0700
+diff -ruN -x '*.png' -x '*.gif' -x '*.jpg' -x '*.webp' a/crates/egui/src/containers/area.rs b/crates/egui/src/containers/area.rs
+--- a/crates/egui/src/containers/area.rs	2026-11-09 17:03:59.588897675 +0700
++++ b/crates/egui/src/containers/area.rs	2026-11-09 17:04:00.343888791 +0700
 @@ -728,9 +728,28 @@
              mut state,
              move_response: mut response,
@@ -30,9 +30,9 @@ diff -ruN a/crates/egui/src/containers/area.rs b/crates/egui/src/containers/area
          state.size = Some(content_ui.min_size());
  
          // Make sure we report back the correct size.
-diff -ruN a/crates/egui/src/context.rs b/crates/egui/src/context.rs
---- a/crates/egui/src/context.rs	2026-11-08 03:59:24.617138818 +0700
-+++ b/crates/egui/src/context.rs	2026-11-08 03:59:24.693828183 +0700
+diff -ruN -x '*.png' -x '*.gif' -x '*.jpg' -x '*.webp' a/crates/egui/src/context.rs b/crates/egui/src/context.rs
+--- a/crates/egui/src/context.rs	2026-11-09 17:03:59.828559829 +0700
++++ b/crates/egui/src/context.rs	2026-11-09 17:04:00.346791392 +0700
 @@ -2564,6 +2564,32 @@
          }
      }
@@ -90,9 +90,9 @@ diff -ruN a/crates/egui/src/context.rs b/crates/egui/src/context.rs
          self.request_repaint_of(id);
  
          if command.requires_parent_repaint() {
-diff -ruN a/crates/egui/src/input_state/wheel_state.rs b/crates/egui/src/input_state/wheel_state.rs
---- a/crates/egui/src/input_state/wheel_state.rs	2026-11-08 03:59:24.620375234 +0700
-+++ b/crates/egui/src/input_state/wheel_state.rs	2026-11-08 03:59:24.689986092 +0700
+diff -ruN -x '*.png' -x '*.gif' -x '*.jpg' -x '*.webp' a/crates/egui/src/input_state/wheel_state.rs b/crates/egui/src/input_state/wheel_state.rs
+--- a/crates/egui/src/input_state/wheel_state.rs	2026-11-09 17:03:59.832982210 +0700
++++ b/crates/egui/src/input_state/wheel_state.rs	2026-11-09 17:04:00.344965468 +0700
 @@ -188,7 +188,8 @@
      }
  
@@ -103,9 +103,9 @@ diff -ruN a/crates/egui/src/input_state/wheel_state.rs b/crates/egui/src/input_s
  
          if self.unprocessed_wheel_delta != Vec2::ZERO {
              for d in 0..2 {
-diff -ruN a/crates/egui/src/lib.rs b/crates/egui/src/lib.rs
---- a/crates/egui/src/lib.rs	2026-11-08 03:59:24.620846040 +0700
-+++ b/crates/egui/src/lib.rs	2026-11-08 03:59:24.690298908 +0700
+diff -ruN -x '*.png' -x '*.gif' -x '*.jpg' -x '*.webp' a/crates/egui/src/lib.rs b/crates/egui/src/lib.rs
+--- a/crates/egui/src/lib.rs	2026-11-09 17:03:59.833461168 +0700
++++ b/crates/egui/src/lib.rs	2026-11-09 17:04:00.345055279 +0700
 @@ -414,6 +414,7 @@
  pub mod load;
  mod memory;
@@ -114,9 +114,9 @@ diff -ruN a/crates/egui/src/lib.rs b/crates/egui/src/lib.rs
  mod painter;
  mod pass_state;
  pub(crate) mod placer;
-diff -ruN a/crates/egui/src/painter.rs b/crates/egui/src/painter.rs
---- a/crates/egui/src/painter.rs	2026-11-08 03:59:24.621723033 +0700
-+++ b/crates/egui/src/painter.rs	2026-11-08 03:59:24.690761253 +0700
+diff -ruN -x '*.png' -x '*.gif' -x '*.jpg' -x '*.webp' a/crates/egui/src/painter.rs b/crates/egui/src/painter.rs
+--- a/crates/egui/src/painter.rs	2026-11-09 17:03:59.834070106 +0700
++++ b/crates/egui/src/painter.rs	2026-11-09 17:04:00.345168962 +0700
 @@ -492,6 +492,7 @@
          color: crate::Color32,
          wrap_width: f32,
@@ -133,9 +133,9 @@ diff -ruN a/crates/egui/src/painter.rs b/crates/egui/src/painter.rs
          self.fonts_mut(|f| f.layout(text, font_id, color, f32::INFINITY))
      }
  
-diff -ruN a/crates/egui/src/style.rs b/crates/egui/src/style.rs
---- a/crates/egui/src/style.rs	2026-11-08 03:59:24.622386786 +0700
-+++ b/crates/egui/src/style.rs	2026-11-08 03:59:24.692070959 +0700
+diff -ruN -x '*.png' -x '*.gif' -x '*.jpg' -x '*.webp' a/crates/egui/src/style.rs b/crates/egui/src/style.rs
+--- a/crates/egui/src/style.rs	2026-11-09 17:03:59.834769151 +0700
++++ b/crates/egui/src/style.rs	2026-11-09 17:04:00.345486634 +0700
 @@ -1413,6 +1413,11 @@
          } else if response.is_pointer_button_down_on() || response.has_focus() || response.clicked()
          {
@@ -148,10 +148,10 @@ diff -ruN a/crates/egui/src/style.rs b/crates/egui/src/style.rs
          } else if response.hovered() || response.highlighted() {
              &self.hovered
          } else {
-diff -ruN a/crates/egui/src/themisio.rs b/crates/egui/src/themisio.rs
+diff -ruN -x '*.png' -x '*.gif' -x '*.jpg' -x '*.webp' a/crates/egui/src/themisio.rs b/crates/egui/src/themisio.rs
 --- a/crates/egui/src/themisio.rs	1970-01-01 07:00:00.000000000 +0700
-+++ b/crates/egui/src/themisio.rs	2026-11-08 03:59:24.693208766 +0700
-@@ -0,0 +1,249 @@
++++ b/crates/egui/src/themisio.rs	2026-11-09 17:04:00.346143641 +0700
+@@ -0,0 +1,268 @@
 +//! Themisio additions to egui (see `vendor/egui/THEMISIO.md`). Both are inert until a host turns
 +//! them on, so every other user of this fork behaves exactly as before.
 +//!
@@ -401,9 +401,28 @@ diff -ruN a/crates/egui/src/themisio.rs b/crates/egui/src/themisio.rs
 +    }
 +    p
 +}
-diff -ruN a/crates/egui/src/widget_text.rs b/crates/egui/src/widget_text.rs
---- a/crates/egui/src/widget_text.rs	2026-11-08 03:59:24.624768590 +0700
-+++ b/crates/egui/src/widget_text.rs	2026-11-08 03:59:24.693982399 +0700
++
++// Context-menu extras: a host adds its own items (Translate, Check writing…) at the end of the
++// apps' right-click menus. The apps call `context_menu_extras` where their menus end.
++type MenuHook = std::sync::Arc<dyn Fn(&mut crate::Ui) -> bool + Send + Sync>;
++static MENU_HOOK: RwLock<Option<MenuHook>> = RwLock::new(None);
++
++/// Set (or clear) the items added to the apps' right-click menus. The hook returns whether one
++/// of its items was clicked (it closes the menu itself).
++pub fn set_context_menu_hook(hook: Option<MenuHook>) {
++    if let Ok(mut h) = MENU_HOOK.write() {
++        *h = hook;
++    }
++}
++
++/// Draw the host's extra menu items, if any; true when one was clicked.
++pub fn context_menu_extras(ui: &mut crate::Ui) -> bool {
++    let hook = MENU_HOOK.read().ok().and_then(|h| h.clone());
++    hook.is_some_and(|h| h(ui))
++}
+diff -ruN -x '*.png' -x '*.gif' -x '*.jpg' -x '*.webp' a/crates/egui/src/widget_text.rs b/crates/egui/src/widget_text.rs
+--- a/crates/egui/src/widget_text.rs	2026-11-09 17:03:59.836638272 +0700
++++ b/crates/egui/src/widget_text.rs	2026-11-09 17:04:00.346883226 +0700
 @@ -420,7 +420,7 @@
          let text_color = self.get_text_color(&style.visuals);
  

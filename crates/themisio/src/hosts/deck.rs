@@ -20,6 +20,7 @@ pub struct DeckHost {
     /// The interface language Themisio shows DeckCraft in (`deck_i18n`); kept for its prefs.
     #[allow(dead_code)]
     lang: Lang,
+    seen_status: Option<(String, f64)>,
 }
 
 /// DeckCraft's settings folder: `ui.json`, `prefs.json` (shared with a standalone DeckCraft).
@@ -110,7 +111,25 @@ impl DeckHost {
             }
         }
         app.integrated_titlebar = false;
-        Self { app, lang }
+        Self { app, lang, seen_status: None }
+    }
+}
+
+impl DeckHost {
+    /// The paragraphs of shape `id`'s text.
+    fn paragraphs(&mut self, id: u32) -> Option<Vec<String>> {
+        let v = self.app.run("text.get", serde_json::json!({"id": id})).ok()?;
+        Some(v["paragraphs"].as_array()?.iter().map(|p| p["text"].as_str().unwrap_or("").to_string()).collect())
+    }
+
+    /// Edit shape `id`'s text (if it isn't being edited already).
+    fn edit_shape(&mut self, id: u64) -> Result<(), String> {
+        let editing = self.app.session.active().and_then(|d| d.selection.text.as_ref()).is_some_and(|t| u64::from(t.shape.0) == id);
+        if editing {
+            return Ok(());
+        }
+        let _ = self.app.run("selection.set", serde_json::json!({"ids": [id]}));
+        self.app.run("text.edit", serde_json::json!({"id": id})).map(|_| ()).map_err(|e| e.to_string())
     }
 }
 
@@ -167,6 +186,94 @@ impl Host for DeckHost {
                 .map(|(i, d)| super::Tab { id: i as u64, title: d.title(), dirty: d.is_dirty(), active: active == Some(i) })
                 .collect(),
         )
+    }
+
+    fn command(&mut self, cmd: super::DocCommand) -> Result<(), String> {
+        let id = match cmd {
+            super::DocCommand::Save => "file.save",
+            super::DocCommand::SaveAs => "file.saveAs",
+            super::DocCommand::Print => "app.print",
+        };
+        self.app.run(id, serde_json::json!({})).map(|_| ()).map_err(|e| e.to_string())
+    }
+
+    fn take_notices(&mut self) -> Vec<String> {
+        let mut out: Vec<String> = self.app.toast.take().map(|t| t.text).into_iter().collect();
+        if let Some(m) = &self.app.status
+            && self.seen_status.as_ref() != Some(m)
+        {
+            self.seen_status = Some(m.clone());
+            out.push(m.0.clone());
+        }
+        out
+    }
+
+    fn ai_target(&mut self) -> Option<super::AiTarget> {
+        let d = self.app.session.active()?;
+        let (shape, sel) = match &d.selection.text {
+            Some(t) if !t.notes && t.cell.is_none() => (t.shape.0, Some((t.anchor, t.caret))),
+            Some(_) => return None,
+            None if d.selection.shapes.len() == 1 => (d.selection.shapes[0].0, None),
+            None => return None,
+        };
+        let paras = self.paragraphs(shape)?;
+        let (text, p0, p1, selection) = match sel {
+            Some((a, c)) if a != c => {
+                let (s, e) = if a <= c { (a, c) } else { (c, a) };
+                let mut out = String::new();
+                for p in s.0..=e.0 {
+                    let line: Vec<char> = paras.get(p)?.chars().collect();
+                    let from = if p == s.0 { s.1.min(line.len()) } else { 0 };
+                    let to = if p == e.0 { e.1.min(line.len()) } else { line.len() };
+                    if p > s.0 {
+                        out.push('\n');
+                    }
+                    out.extend(line[from..to.max(from)].iter());
+                }
+                (out, s.0, e.0, true)
+            }
+            Some((_, c)) => (paras.get(c.0)?.clone(), c.0, c.0, false),
+            None => (paras.join("\n"), 0, paras.len().saturating_sub(1), false),
+        };
+        if text.trim().is_empty() {
+            return None;
+        }
+        Some(super::AiTarget { text, selection, anchor: serde_json::json!({"shape": shape, "p0": p0, "p1": p1}), screen: None })
+    }
+
+    fn ai_replace(&mut self, target: &super::AiTarget, original: &str, replacement: &str) -> Result<(), String> {
+        let shape = target.anchor["shape"].as_u64().ok_or("no shape")?;
+        let p0 = target.anchor["p0"].as_u64().unwrap_or(0) as usize;
+        let p1 = target.anchor["p1"].as_u64().unwrap_or(0) as usize;
+        self.edit_shape(shape)?;
+        let paras = self.paragraphs(shape as u32).ok_or("The text box has gone")?;
+        for (p, line) in paras.iter().enumerate().skip(p0).take(p1.saturating_sub(p0) + 1) {
+            if let Some(byte) = line.find(original) {
+                let c0 = line[..byte].chars().count();
+                let c1 = c0 + original.chars().count();
+                self.app.run("text.select", serde_json::json!({"anchor": [p, c0], "caret": [p, c1]})).map_err(|e| e.to_string())?;
+                return self.app.run("text.insert", serde_json::json!({"text": replacement})).map(|_| ()).map_err(|e| e.to_string());
+            }
+        }
+        Err("The text has changed since it was checked".into())
+    }
+
+    fn ai_replace_all(&mut self, target: &super::AiTarget, text: &str) -> Result<(), String> {
+        let shape = target.anchor["shape"].as_u64().ok_or("no shape")?;
+        let p0 = target.anchor["p0"].as_u64().unwrap_or(0) as usize;
+        let p1 = target.anchor["p1"].as_u64().unwrap_or(0) as usize;
+        if target.selection {
+            // The selection is still what was read: replace it.
+            if self.ai_target().is_some_and(|t| t.text == target.text) {
+                return self.app.run("text.insert", serde_json::json!({"text": text})).map(|_| ()).map_err(|e| e.to_string());
+            }
+            return Err("The selection has changed".into());
+        }
+        self.edit_shape(shape)?;
+        let paras = self.paragraphs(shape as u32).ok_or("The text box has gone")?;
+        let end = paras.get(p1).map_or(0, |l| l.chars().count());
+        self.app.run("text.select", serde_json::json!({"anchor": [p0, 0], "caret": [p1, end]})).map_err(|e| e.to_string())?;
+        self.app.run("text.insert", serde_json::json!({"text": text})).map(|_| ()).map_err(|e| e.to_string())
     }
 
     fn activate_tab(&mut self, id: u64) {

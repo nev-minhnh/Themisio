@@ -247,3 +247,22 @@ pub fn toolbar_transition(ui: &mut crate::Ui, key: impl std::hash::Hash) -> f32 
     }
     p
 }
+
+// Context-menu extras: a host adds its own items (Translate, Check writing…) at the end of the
+// apps' right-click menus. The apps call `context_menu_extras` where their menus end.
+type MenuHook = std::sync::Arc<dyn Fn(&mut crate::Ui) -> bool + Send + Sync>;
+static MENU_HOOK: RwLock<Option<MenuHook>> = RwLock::new(None);
+
+/// Set (or clear) the items added to the apps' right-click menus. The hook returns whether one
+/// of its items was clicked (it closes the menu itself).
+pub fn set_context_menu_hook(hook: Option<MenuHook>) {
+    if let Ok(mut h) = MENU_HOOK.write() {
+        *h = hook;
+    }
+}
+
+/// Draw the host's extra menu items, if any; true when one was clicked.
+pub fn context_menu_extras(ui: &mut crate::Ui) -> bool {
+    let hook = MENU_HOOK.read().ok().and_then(|h| h.clone());
+    hook.is_some_and(|h| h(ui))
+}

@@ -17,6 +17,8 @@ pub struct WordHost {
     app: WordApp,
     dialogs: file_dialogs::Launcher,
     language: Option<Lang>,
+    /// The last status message handed to Themisio's notifications.
+    seen_status: Option<(String, f64)>,
 }
 
 fn prefs_enabled() -> bool {
@@ -142,7 +144,7 @@ impl WordHost {
         app.use_single_window();
         app.integrated_titlebar = false;
         app.ui.language = lang.code().to_string();
-        Self { app, dialogs, language: None }
+        Self { app, dialogs, language: None, seen_status: None }
     }
 
 }
@@ -220,6 +222,74 @@ impl Host for WordHost {
     fn tabs(&self) -> Option<Vec<super::Tab>> {
         let docs = self.app.session.documents();
         Some(docs.into_iter().map(|d| super::Tab { id: d.id, title: d.title, dirty: d.dirty, active: d.active }).collect())
+    }
+
+    fn command(&mut self, cmd: super::DocCommand) -> Result<(), String> {
+        let id = match cmd {
+            super::DocCommand::Save => "file.save",
+            super::DocCommand::SaveAs => "file.saveAs",
+            super::DocCommand::Print => "file.print",
+        };
+        self.app.run(id, serde_json::json!({})).map(|_| ()).map_err(|e| e.to_string())
+    }
+
+    fn take_notices(&mut self) -> Vec<String> {
+        match &self.app.status_msg {
+            Some(m) if self.seen_status.as_ref() != Some(m) => {
+                self.seen_status = Some(m.clone());
+                vec![m.0.clone()]
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    fn ai_target(&mut self) -> Option<super::AiTarget> {
+        let screen = wordcraft_ui_egui::canvas::cursor::caret_screen(&mut self.app).map(|(p, h)| p + egui::vec2(0.0, h));
+        let s = &self.app.session;
+        let (a, b) = s.sel.ordered();
+        if a != b {
+            let text = s.selected_text();
+            if text.trim().is_empty() {
+                return None;
+            }
+            return Some(super::AiTarget { text, selection: true, anchor: serde_json::json!({"start": a, "end": b}), screen });
+        }
+        let para = s.doc.para_at(&s.sel.focus)?;
+        let text = para.plain_text();
+        if text.trim().is_empty() {
+            return None;
+        }
+        let mut start = s.sel.focus.clone();
+        start.off = 0;
+        let mut end = s.sel.focus.clone();
+        end.off = para.len();
+        Some(super::AiTarget { text, selection: false, anchor: serde_json::json!({"start": start, "end": end}), screen })
+    }
+
+    fn ai_replace(&mut self, target: &super::AiTarget, original: &str, replacement: &str) -> Result<(), String> {
+        let start: wordcraft_doc::Pos = serde_json::from_value(target.anchor["start"].clone()).map_err(|e| e.to_string())?;
+        let saved_find = self.app.session.find.clone();
+        self.app.session.sel = wordcraft_engine::Selection { anchor: start.clone(), focus: start.clone() };
+        let found = self.app.run("edit.find", serde_json::json!({"text": original, "matchCase": true, "special": false}));
+        let (a, _) = self.app.session.sel.ordered();
+        let ok = found.is_ok() && a >= start && self.app.session.selected_text() == original;
+        self.app.session.find = saved_find;
+        if !ok {
+            self.app.session.sel = wordcraft_engine::Selection { anchor: start.clone(), focus: start };
+            return Err("The text has changed since it was checked".into());
+        }
+        self.app.run("text.insert", serde_json::json!({"text": replacement})).map(|_| ()).map_err(|e| e.to_string())
+    }
+
+    fn ai_replace_all(&mut self, target: &super::AiTarget, text: &str) -> Result<(), String> {
+        let start: wordcraft_doc::Pos = serde_json::from_value(target.anchor["start"].clone()).map_err(|e| e.to_string())?;
+        let end: wordcraft_doc::Pos = serde_json::from_value(target.anchor["end"].clone()).map_err(|e| e.to_string())?;
+        let s = &mut self.app.session;
+        s.sel = wordcraft_engine::Selection { anchor: s.doc.clamp(&start), focus: s.doc.clamp(&end) };
+        if s.selected_text() != target.text {
+            return Err("The text has changed since it was read".into());
+        }
+        self.app.run("text.insert", serde_json::json!({"text": text})).map(|_| ()).map_err(|e| e.to_string())
     }
 
     fn activate_tab(&mut self, id: u64) {

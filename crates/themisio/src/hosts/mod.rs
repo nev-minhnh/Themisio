@@ -49,6 +49,25 @@ pub struct Tab {
     pub active: bool,
 }
 
+/// The text the writing assistant works on, and where it is (each app reads its own `anchor`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct AiTarget {
+    pub text: String,
+    /// The user's selection (else the paragraph, text box or cell at the caret).
+    pub selection: bool,
+    pub anchor: serde_json::Value,
+    /// Where on screen it is, when the app knows (the caret).
+    pub screen: Option<egui::Pos2>,
+}
+
+/// A document command from Themisio's tab menu, run with the app's own command.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DocCommand {
+    Save,
+    SaveAs,
+    Print,
+}
+
 /// What the shell needs from a hosted app.
 pub trait Host {
     #[allow(dead_code)]
@@ -77,6 +96,41 @@ pub trait Host {
     fn activate_tab(&mut self, _id: u64) {}
     /// Close document `id`, asking about unsaved changes as the app's File ▸ Close does.
     fn close_tab(&mut self, _id: u64) {}
+    /// Messages the app has put up since the last call (its toasts and status messages), for
+    /// Themisio's notifications. The app's own toast is taken, so the message shows once.
+    fn take_notices(&mut self) -> Vec<String> {
+        Vec::new()
+    }
+    /// The text for the writing assistant: the selection, or the paragraph at the caret
+    /// (Documents, Presentation), or the active cell's text (CalcSheet).
+    fn ai_target(&mut self) -> Option<AiTarget> {
+        None
+    }
+    /// Replace the first `original` at or after the target's start with `replacement`, as an
+    /// edit the user can undo.
+    fn ai_replace(&mut self, _target: &AiTarget, _original: &str, _replacement: &str) -> Result<(), String> {
+        Err("not available here".into())
+    }
+    /// Put `text` in place of the whole target (a rewrite or a translation).
+    fn ai_replace_all(&mut self, target: &AiTarget, text: &str) -> Result<(), String> {
+        self.ai_replace(target, &target.text, text)
+    }
+    /// CalcSheet: the workbook as the assistant sees it (sheets, selection, the data).
+    fn sheet_context(&mut self) -> Option<String> {
+        None
+    }
+    /// CalcSheet: the parameters of these commands, one line each.
+    fn command_docs(&mut self, _ids: &[&str]) -> String {
+        String::new()
+    }
+    /// Run one of the app's commands with parameters (an action the user allowed).
+    fn run_json(&mut self, _id: &str, _params: serde_json::Value) -> Result<serde_json::Value, String> {
+        Err("not available here".into())
+    }
+    /// Save, Save As or Print the active document, as the app's File menu does.
+    fn command(&mut self, _cmd: DocCommand) -> Result<(), String> {
+        Err("not available here".into())
+    }
     /// eframe's periodic save (only PdfCraft keeps its settings there).
     fn save(&mut self, _storage: &mut dyn eframe::Storage) {}
     /// The app is going away (window closing, or the app was closed): save preferences, finish

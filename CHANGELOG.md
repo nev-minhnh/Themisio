@@ -2,6 +2,40 @@
 
 Lịch sử: Themisio có tên **Ostium** ở 0.1.0 và 0.2.0.
 
+## 0.4.0 — 2026-11-09
+
+**AI (Cài đặt ▸ AI)** — đăng nhập một lần, dùng cho Documents, Presentation và CalcSheet
+- Nhà cung cấp: Claude (Anthropic), ChatGPT (OpenAI), Gemini (Google AI Studio), Grok (xAI),
+  Perplexity, llama.cpp, và bất kỳ API tương thích OpenAI nào (DeepSeek, MiniMax, OpenRouter,
+  Mistral, Groq, Together… hoặc tự nhập). Key lưu trong Windows Credential Manager; key đã lưu
+  trong Callio được dùng luôn. Yêu cầu đi thẳng từ máy đến nhà cung cấp.
+- Claude Code: dùng gói Claude Pro/Max đã đăng nhập (không cần key) — trạng thái, đăng nhập,
+  đăng xuất ngay trong Cài đặt.
+- Chọn model, mức nỗ lực (effort) và suy nghĩ (thinking) — trong Cài đặt và đổi nhanh ngay trên
+  popup.
+- **Trợ lý viết kiểu Grammarly**: chuột phải ▸ *Kiểm tra văn bản bằng AI* (Ctrl+Alt+G) — popup
+  cạnh con trỏ liệt kê lỗi chính tả, ngữ pháp, dấu câu, cú pháp, văn phong, kèm giải thích; Nhận /
+  Bỏ qua / Nhận tất cả (sửa thẳng vào tài liệu, Ctrl+Z hoàn tác). Bật/tắt riêng cho từng ứng dụng.
+  Kiểm tra tự động khi ngừng gõ (mặc định tắt) hiện huy hiệu số gợi ý.
+- **Hỏi AI** (Ctrl+Alt+K): ô nhập yêu cầu (viết trang trọng hơn, ngắn gọn hơn, viết tiếp…), các yêu
+  cầu nhanh, chọn **skills** viết (thư mục SKILL.md như Claude Code; thư mục skills riêng của
+  Themisio, của Claude Code, và thư mục bạn thêm), hướng dẫn chung cho mọi yêu cầu.
+- **Dịch** (chuột phải ▸ Dịch, Ctrl+Alt+T): mặc định Google Translate; hoặc dịch bằng bất kỳ model
+  AI nào; chọn ngôn ngữ đích (mặc định Việt ↔ Anh); Thay thế / Sao chép.
+- **Trợ lý CalcSheet** (nút *Hỏi AI*, Ctrl+Alt+A): chat phân tích số liệu (vùng chọn hoặc cả
+  sheet), nhận xét, xu hướng, gợi ý bước tiếp theo; đề xuất công thức, bảng, sắp xếp, định dạng,
+  biểu đồ — chỉ thực hiện khi bạn bấm *Cho phép*, bằng chính lệnh của CalcSheet (hoàn tác được),
+  và chỉ trong danh sách lệnh cho phép.
+
+**Tab**
+- Chuột phải vào tab: Lưu, Lưu thành, In; Ghim tab (tab ghim nằm đầu, gọn, không có nút đóng);
+  Đóng tab, Đóng các tab khác, Đóng các tab bên phải (từng tài liệu vẫn hỏi về thay đổi chưa lưu).
+
+**Thông báo**
+- Popup thông báo thành công/thất bại thống nhất cho mọi thao tác ở cả bốn ứng dụng: lưu, mở,
+  xuất, chuyển đổi, in, lỗi… (gom từ thông báo của từng ứng dụng, và tự nhận ra khi tài liệu
+  được lưu hoặc mở xong). Rê chuột để giữ, bấm để đóng.
+
 ## 0.3.2 — 2026-11-09
 - Khởi động lần đầu sau khi bật máy nhanh hơn. Ngay sau khi Windows khởi động, toàn bộ tệp exe
   phải được đọc từ ổ đĩa và được phần mềm diệt virus quét trước khi Themisio kịp chạy, nên thời

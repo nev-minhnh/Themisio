@@ -103,6 +103,9 @@ pub struct Settings {
     pub open_with: BTreeMap<String, AppKind>,
     /// The app shown when Themisio last closed.
     pub last_app: Option<AppKind>,
+    /// AI providers, models and the writing assistant (keys are in Windows Credential Manager).
+    #[serde(default)]
+    pub ai: crate::ai::AiSettings,
 }
 
 impl Default for Settings {
@@ -118,6 +121,7 @@ impl Default for Settings {
             recent: Vec::new(),
             open_with: BTreeMap::new(),
             last_app: None,
+            ai: Default::default(),
         }
     }
 }

@@ -48,6 +48,8 @@ craft-print = { git = "https://github.com/storytold/craft-libs", rev = "a3e0b5a9
 # DeckCraft's audio output for media and slide-show sound.
 cpal = "0.16"
 tempfile = "3"
+# AI providers over HTTPS (the same ureq the apps already use, with rustls).
+ureq = { version = "3", default-features = false, features = ["rustls", "gzip"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # UISettings (animation effects, home region), as WordCraft and PdfCraft read them.
@@ -59,6 +61,8 @@ winsafe = { version = "0.0.29", default-features = false, features = ["user", "a
 # File associations under HKCU\Software\Classes (no admin rights needed).
 winreg = "0.55"
 open = "5"
+# API keys in Windows Credential Manager.
+keyring = { version = "3", features = ["windows-native"] }
 
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 winit = { version = "0.30", default-features = false, features = ["x11", "wayland"] }

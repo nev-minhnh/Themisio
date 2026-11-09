@@ -241,6 +241,115 @@ impl Host for GridHost {
         Some(tabs)
     }
 
+    fn command(&mut self, cmd: super::DocCommand) -> Result<(), String> {
+        let id = match cmd {
+            super::DocCommand::Save => "file.save",
+            super::DocCommand::SaveAs => "file.saveAs",
+            super::DocCommand::Print => "file.print",
+        };
+        self.app.run(id, serde_json::json!({})).map(|_| ()).map_err(|e| e.to_string())
+    }
+
+    fn take_notices(&mut self) -> Vec<String> {
+        self.app.toast.take().map(|t| t.0).into_iter().collect()
+    }
+
+    fn ai_target(&mut self) -> Option<super::AiTarget> {
+        let v = self.app.run("cell.get", serde_json::json!({})).ok()?;
+        if v["type"] != "text" || v["formula"].is_string() {
+            return None;
+        }
+        let text = v["input"].as_str().or_else(|| v["text"].as_str())?.to_string();
+        if text.trim().is_empty() {
+            return None;
+        }
+        Some(super::AiTarget { text, selection: false, anchor: serde_json::json!({"cell": v["cell"]}), screen: None })
+    }
+
+    fn ai_replace(&mut self, target: &super::AiTarget, original: &str, replacement: &str) -> Result<(), String> {
+        let cell = target.anchor["cell"].as_str().ok_or("no cell")?.to_string();
+        let v = self.app.run("cell.get", serde_json::json!({"cell": cell})).map_err(|e| e.to_string())?;
+        let input = v["input"].as_str().unwrap_or("").to_string();
+        if !input.contains(original) {
+            return Err("The cell has changed since it was checked".into());
+        }
+        let new = input.replacen(original, replacement, 1);
+        self.app.run("cell.set", serde_json::json!({"cell": cell, "input": new})).map(|_| ()).map_err(|e| e.to_string())
+    }
+
+    fn ai_replace_all(&mut self, target: &super::AiTarget, text: &str) -> Result<(), String> {
+        let cell = target.anchor["cell"].as_str().ok_or("no cell")?;
+        self.app.run("cell.set", serde_json::json!({"cell": cell, "input": text})).map(|_| ()).map_err(|e| e.to_string())
+    }
+
+    fn sheet_context(&mut self) -> Option<String> {
+        const ROWS: usize = 200;
+        const COLS: usize = 30;
+        let (title, sheets, active, selection) = {
+            let d = self.app.session.active()?;
+            let names: Vec<String> = d.wb.sheets.iter().map(|s| s.name.clone()).collect();
+            let active = d.wb.active().map(|s| s.name.clone()).unwrap_or_default();
+            let sel: Vec<String> = d.selection.ranges.iter().map(|r| r.a1()).collect();
+            let title = d.path.as_deref().map(|p| p.rsplit(['/', '\\']).next().unwrap_or(p).to_string()).unwrap_or_else(|| "Untitled workbook".into());
+            (title, names, active, sel.join(", "))
+        };
+        let mut out = format!("Workbook: {title}\nSheets: {}\nActive sheet: {active}\nSelection: {selection}\n", sheets.join(", "));
+        let table = |v: &serde_json::Value| -> String {
+            let mut s = String::new();
+            for row in v["values"].as_array().into_iter().flatten().take(ROWS) {
+                let cells: Vec<String> = row
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .take(COLS)
+                    .map(|c| match c {
+                        serde_json::Value::Null => String::new(),
+                        serde_json::Value::String(t) => t.replace(['\t', '\n'], " "),
+                        other => other.to_string(),
+                    })
+                    .collect();
+                s.push_str(&cells.join("\t"));
+                s.push('\n');
+            }
+            s
+        };
+        let multi = selection.contains(':');
+        if multi
+            && let Ok(v) = self.app.run("sheet.read", serde_json::json!({"range": selection.split(", ").last().unwrap_or("")}))
+        {
+            out.push_str(&format!("\nThe selection ({}) as tab-separated values:\n{}", v["range"].as_str().unwrap_or(""), table(&v)));
+        }
+        match self.app.run("sheet.read", serde_json::json!({})) {
+            Ok(v) if v["range"].is_string() => {
+                let rows = v["values"].as_array().map_or(0, Vec::len);
+                out.push_str(&format!(
+                    "\nThe active sheet's used range {} ({rows} rows{}), tab-separated, first row = row {} of the sheet:\n{}",
+                    v["range"].as_str().unwrap_or(""),
+                    if rows > ROWS { format!(", first {ROWS} shown") } else { String::new() },
+                    v["range"].as_str().and_then(|r| r.trim_start_matches(|c: char| c.is_ascii_alphabetic()).split(':').next()).unwrap_or("1"),
+                    table(&v)
+                ));
+            }
+            _ => out.push_str("\nThe active sheet is empty.\n"),
+        }
+        Some(out)
+    }
+
+    fn command_docs(&mut self, ids: &[&str]) -> String {
+        self.app
+            .session
+            .commands()
+            .into_iter()
+            .filter(|c| ids.contains(&c.id))
+            .map(|c| format!("- {} ({}): {}", c.id, c.label, c.params))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    fn run_json(&mut self, id: &str, params: serde_json::Value) -> Result<serde_json::Value, String> {
+        self.app.run(id, params).map_err(|e| e.to_string())
+    }
+
     fn activate_tab(&mut self, id: u64) {
         if let Err(e) = self.app.run("window.activate", serde_json::json!({"window": id})) {
             log::warn!("CalcSheet: switch to {id}: {e}");

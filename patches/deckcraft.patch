@@ -23,6 +23,18 @@ index 3ddbda1..6e9829f 100644
              ui.hyperlink_to("Source on GitHub", deckcraft_engine::links::GITHUB);
          });
          ui.add_space(40.0);
+diff --git a/crates/ui-egui/src/canvas/context_menu.rs b/crates/ui-egui/src/canvas/context_menu.rs
+index 1aa1c92..bdf27bb 100644
+--- a/crates/ui-egui/src/canvas/context_menu.rs
++++ b/crates/ui-egui/src/canvas/context_menu.rs
+@@ -34,6 +34,7 @@ pub(super) fn context_menu(app: &mut SlideApp, resp: &egui::Response) {
+         } else {
+             slide_items(app, ui);
+         }
++        egui::themisio::context_menu_extras(ui);
+     });
+ }
+ 
 diff --git a/crates/ui-egui/src/dialogs/about.rs b/crates/ui-egui/src/dialogs/about.rs
 index 059543b..253015a 100644
 --- a/crates/ui-egui/src/dialogs/about.rs

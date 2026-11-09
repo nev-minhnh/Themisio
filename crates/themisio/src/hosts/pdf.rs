@@ -53,6 +53,10 @@ impl PdfHost {
 }
 
 impl Host for PdfHost {
+    fn take_notices(&mut self) -> Vec<String> {
+        self.app.toast.take().map(|t| t.0).into_iter().collect()
+    }
+
     fn kind(&self) -> AppKind {
         AppKind::Pdf
     }
