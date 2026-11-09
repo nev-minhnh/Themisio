@@ -2,6 +2,14 @@
 
 Lịch sử: Themisio có tên **Ostium** ở 0.1.0 và 0.2.0.
 
+## 0.5.3 — 2026-11-09
+- Trợ lý viết: **Kiểm tra khi gõ chỉ quét phần chữ đang hiện trên màn hình**; quét cả tài liệu chỉ
+  khi bấm **Quét cả tài liệu** (hoặc Ctrl+Alt+G, chuột phải › Kiểm tra văn bản bằng AI).
+- Đoạn đã quét mà không đổi thì không bao giờ quét lại (cuộn qua lại không tốn yêu cầu nào).
+- Khi đang lăn chuột thì không quét; quét tiếp sau khi dừng cuộn 1 giây.
+- Quét lại một đoạn vừa sửa thì danh sách gợi ý được cập nhật, không bị xóa: các gợi ý cũ mà chữ
+  vẫn còn được giữ cho đến khi có kết quả mới.
+
 ## 0.5.2 — 2026-11-09
 - Tra nghĩa khi nhấp đúp: popup hiện ngay dưới con trỏ chuột (trước đây hiện ở chỗ khác rồi tự
   đóng sau chưa tới nửa giây). Popup chỉ tự đóng khi chuột đã vào popup rồi rời đi, hoặc khi chuột đi

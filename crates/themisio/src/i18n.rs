@@ -487,6 +487,9 @@ fn vi(en: &str) -> Option<&'static str> {
         "Look up words on double-click" => "Tra từ khi nhấp đúp",
         "Double-click a word to see what it means." => "Nhấp đúp vào một từ để xem nghĩa.",
         "1 cell shows an error" => "1 ô đang báo lỗi",
+        "Check whole document" => "Quét cả tài liệu",
+        "Press Check whole document, or turn on Check as you type in Settings › AI." => "Bấm Quét cả tài liệu, hoặc bật Kiểm tra khi gõ trong Cài đặt › AI.",
+        "As you type, only the text on screen is checked." => "Khi gõ, chỉ phần đang hiện trên màn hình được kiểm tra.",
         _ => return None,
     })
 }

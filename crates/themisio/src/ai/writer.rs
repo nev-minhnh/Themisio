@@ -183,8 +183,13 @@ pub struct Writer {
     /// After a suggestion is accepted: the unit it changed (its hash before) and the text that was
     /// replaced, so the unit's other suggestions carry over instead of waiting for a new check.
     carry: Option<(u64, String)>,
+    /// Suggestions carried over from an earlier version of a changed unit, shown until it is
+    /// checked again (so the list is updated, not wiped).
+    provisional: HashMap<u64, Vec<Issue>>,
     pending: HashSet<u64>,
     job: Option<Job<Batch>>,
+    /// When the document last scrolled (checks wait until it has been still for a second).
+    scrolled_at: f64,
     changed_at: f64,
     /// Check everything now (the Check button, or a right-click Check writing).
     wanted: bool,
@@ -216,8 +221,10 @@ impl Default for Writer {
             units: Vec::new(),
             checked: HashMap::new(),
             carry: None,
+            provisional: HashMap::new(),
             pending: HashSet::new(),
             job: None,
+            scrolled_at: 0.0,
             changed_at: 0.0,
             wanted: false,
             dismissed: HashSet::new(),
@@ -328,7 +335,7 @@ impl Writer {
         let dict: HashSet<String> = s.dictionary.iter().map(|w| w.to_lowercase()).collect();
         let mut out = Vec::new();
         for (u, unit) in self.units.iter().enumerate() {
-            for issue in self.checked.get(&unit.hash).into_iter().flatten() {
+            for issue in self.checked.get(&unit.hash).or_else(|| self.provisional.get(&unit.hash)).into_iter().flatten() {
                 if self.dismissed.contains(&(unit.hash, issue.original.clone())) || dict.contains(&issue.original.trim().to_lowercase()) {
                     continue;
                 }
@@ -383,6 +390,24 @@ impl Writer {
             if units.iter().any(|u| !before.contains(&u.hash)) {
                 self.changed_at = now;
             }
+            // A changed unit keeps its earlier suggestions whose text is still there until it is
+            // checked again.
+            let mut provisional = HashMap::new();
+            for u in units.iter().filter(|u| !self.checked.contains_key(&u.hash)) {
+                let earlier = self
+                    .units
+                    .iter()
+                    .filter(|o| o.key == u.key && o.hash != u.hash)
+                    .find_map(|o| self.checked.get(&o.hash).or_else(|| self.provisional.get(&o.hash)))
+                    .or_else(|| self.provisional.get(&u.hash));
+                if let Some(list) = earlier {
+                    let keep: Vec<Issue> = list.iter().filter(|i| u.text.contains(&i.original)).cloned().collect();
+                    if !keep.is_empty() {
+                        provisional.insert(u.hash, keep);
+                    }
+                }
+            }
+            self.provisional = provisional;
             self.units = units;
         }
         // 2. Analyse what isn't checked yet.
@@ -394,6 +419,7 @@ impl Writer {
                 Ok(batch) => {
                     for (h, list) in batch.results {
                         self.pending.remove(&h);
+                        self.provisional.remove(&h);
                         self.checked.insert(h, list);
                     }
                     if batch.tone.is_some() {
@@ -410,12 +436,26 @@ impl Writer {
         }
         let model = s.model_for(&s.write_model);
         let delay = f64::from(s.auto_delay_ms.max(600)) / 1000.0;
-        let due = self.wanted || (s.auto_check && now - self.changed_at >= delay);
+        // Scrolling: hold checks until the page has been still for a second.
+        if ctx.input(|i| i.smooth_scroll_delta != egui::Vec2::ZERO || i.raw.events.iter().any(|e| matches!(e, egui::Event::MouseWheel { .. }))) {
+            self.scrolled_at = now;
+        }
+        let still = now - self.scrolled_at >= 1.0;
+        let due = self.wanted || (s.auto_check && still && now - self.changed_at >= delay);
         if self.job.is_none() && due {
-            let todo: Vec<(u64, String)> = self
-                .units
+            // As you type, only the text on screen is checked; the whole document only when you
+            // ask (Check the whole document, Ctrl+Alt+G). Checked, unchanged text never goes again.
+            let unchecked: Vec<usize> = (0..self.units.len()).filter(|&i| !self.checked.contains_key(&self.units[i].hash) && !self.pending.contains(&self.units[i].hash)).collect();
+            let on_screen: Option<HashSet<usize>> = if self.wanted || unchecked.is_empty() {
+                None
+            } else {
+                let view = host.ai_viewport();
+                Some(unchecked.iter().copied().filter(|&i| view.is_none_or(|v| unit_on_screen(host, &self.units[i], v))).collect())
+            };
+            let todo: Vec<(u64, String)> = unchecked
                 .iter()
-                .filter(|u| !self.checked.contains_key(&u.hash) && !self.pending.contains(&u.hash))
+                .filter(|i| on_screen.as_ref().is_none_or(|set| set.contains(i)))
+                .map(|&i| &self.units[i])
                 .map(|u| (u.hash, u.text.clone()))
                 .fold(Vec::new(), |mut acc: Vec<(u64, String)>, u| {
                     let size: usize = acc.iter().map(|(_, t)| t.len()).sum();
@@ -452,7 +492,7 @@ impl Writer {
                 self.error = Some(t(lang, "Sign in to an AI provider in Settings › AI first.").into());
             }
         }
-        if self.job.is_some() || (s.auto_check && now - self.changed_at < delay) {
+        if self.job.is_some() || (s.auto_check && (now - self.changed_at < delay || !still)) {
             ctx.request_repaint_after(std::time::Duration::from_millis(120));
         }
 
@@ -658,10 +698,16 @@ impl Writer {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if self.job.is_some() {
                             ui.spinner();
-                        } else if super::kit::primary(ui, t(lang, "Check now")).clicked() {
-                            self.wanted = true;
                         }
                     });
+                });
+                ui.add_space(6.0);
+                let all_checked = self.units.iter().all(|u| self.checked.contains_key(&u.hash));
+                ui.horizontal(|ui| {
+                    if super::kit::primary_enabled(ui, self.job.is_none() && !self.wanted && !all_checked, t(lang, "Check whole document")).clicked() {
+                        self.wanted = true;
+                    }
+                    super::kit::hint(ui, if s.auto_check { t(lang, "As you type, only the text on screen is checked.") } else { "" });
                 });
                 ui.add_space(8.0);
                 // The four criteria: one tile each (click to show only that kind).
@@ -749,7 +795,7 @@ impl Writer {
                 } else if self.units.is_empty() {
                     t(lang, "Start writing, and suggestions show up here.")
                 } else {
-                    t(lang, "Press Check now, or turn on Check as you type in Settings › AI.")
+                    t(lang, "Press Check whole document, or turn on Check as you type in Settings › AI.")
                 };
                 ui.vertical(|ui| {
                     ui.add(egui::Label::new(text).wrap());
@@ -1179,4 +1225,23 @@ mod tests {
         assert_eq!(b.results[1].1[0].cat, Cat::Clarity);
         assert_eq!(b.tone, Some(("Neutral".into(), true)));
     }
+}
+
+/// Whether some of `u` is in `view`: its first and last words are found on screen, and the unit
+/// counts as visible when either is inside the view or they straddle it (a long paragraph).
+fn unit_on_screen(host: &mut dyn Host, u: &Unit, view: Rect) -> bool {
+    let words: Vec<&str> = u.text.split_whitespace().collect();
+    let (Some(first), Some(last)) = (words.first(), words.last()) else { return false };
+    let a = host.ai_marks(&u.key, first);
+    let b = if words.len() > 1 { host.ai_marks(&u.key, last) } else { Vec::new() };
+    if a.is_empty() && b.is_empty() {
+        // The app can't place it: treat it as visible (as before).
+        return true;
+    }
+    if a.iter().chain(b.iter()).any(|r| r.intersects(view)) {
+        return true;
+    }
+    let top = a.first().map(|r| r.top());
+    let bottom = b.last().map(|r| r.bottom());
+    matches!((top, bottom), (Some(t), Some(bm)) if t < view.top() && bm > view.bottom())
 }
