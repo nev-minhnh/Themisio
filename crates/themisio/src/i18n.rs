@@ -491,6 +491,14 @@ fn vi(en: &str) -> Option<&'static str> {
         "Press Check whole document, or turn on Check as you type in Settings › AI." => "Bấm Quét cả tài liệu, hoặc bật Kiểm tra khi gõ trong Cài đặt › AI.",
         "As you type, only the text on screen is checked." => "Khi gõ, chỉ phần đang hiện trên màn hình được kiểm tra.",
         "Stop checking" => "Dừng quét",
+        "Paused" => "Đã tạm dừng",
+        "Checking document… {c}/{t}" => "Đang quét tài liệu… {c}/{t}",
+        "Checking this page…" => "Đang quét trang…",
+        "Resume" => "Tiếp tục",
+        "Pause" => "Tạm dừng",
+        "Check page" => "Quét trang",
+        "Check the text on screen" => "Quét phần chữ đang hiện trên màn hình",
+        "Whole document" => "Cả tài liệu",
         _ => return None,
     })
 }

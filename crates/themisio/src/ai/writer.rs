@@ -194,6 +194,10 @@ pub struct Writer {
     scrolled_at: f64,
     /// Stop checking was pressed: checks as you type pause until the text changes again.
     stopped_at: Option<f64>,
+    /// Check the text on screen once (the Check page button), even with checking as you type off.
+    page_wanted: bool,
+    /// Checking is paused: nothing new is sent until it is resumed.
+    paused: bool,
     changed_at: f64,
     /// Check everything now (the Check button, or a right-click Check writing).
     wanted: bool,
@@ -231,6 +235,8 @@ impl Default for Writer {
             job: None,
             scrolled_at: 0.0,
             stopped_at: None,
+            page_wanted: false,
+            paused: false,
             changed_at: 0.0,
             wanted: false,
             dismissed: HashSet::new(),
@@ -447,8 +453,8 @@ impl Writer {
             self.scrolled_at = now;
         }
         let still = now - self.scrolled_at >= 1.0;
-        let paused = self.stopped_at.is_some_and(|t| self.changed_at <= t);
-        let due = self.wanted || (s.auto_check && still && !paused && now - self.changed_at >= delay);
+        let stopped = self.stopped_at.is_some_and(|t| self.changed_at <= t);
+        let due = !self.paused && (self.wanted || self.page_wanted || (s.auto_check && still && !stopped && now - self.changed_at >= delay));
         if self.job.is_none() && due {
             // As you type, only the text on screen is checked; the whole document only when you
             // ask (Check the whole document, Ctrl+Alt+G). Checked, unchanged text never goes again.
@@ -473,7 +479,12 @@ impl Writer {
                 });
             if todo.is_empty() {
                 self.wanted = false;
+                self.page_wanted = false;
             } else if let Some(model) = model.clone() {
+                if !self.wanted {
+                    // Check page is done once the text on screen has gone.
+                    self.page_wanted = false;
+                }
                 for (h, _) in &todo {
                     self.pending.insert(*h);
                 }
@@ -493,8 +504,9 @@ impl Writer {
                     let answer = super::complete(&settings, &req, c)?;
                     parse_batch(&answer, &todo)
                 }));
-            } else if self.wanted {
+            } else if self.wanted || self.page_wanted {
                 self.wanted = false;
+                self.page_wanted = false;
                 self.panel = true;
                 self.error = Some(t(lang, "Sign in to an AI provider in Settings › AI first.").into());
             }
@@ -706,28 +718,94 @@ impl Writer {
                         let checked = self.units.iter().filter(|u| self.checked.contains_key(&u.hash)).count();
                         ui.label(RichText::new(tf(lang, "{n} suggestions · {c} of {t} checked", &[("n", &n.to_string()), ("c", &checked.to_string()), ("t", &self.units.len().to_string())])).size(12.0).color(p.muted));
                     });
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if self.job.is_some() {
-                            ui.spinner();
-                        }
-                    });
                 });
                 ui.add_space(6.0);
                 let all_checked = self.units.iter().all(|u| self.checked.contains_key(&u.hash));
-                ui.horizontal(|ui| {
-                    if self.job.is_some() || self.wanted {
-                        // Stop: drop the request under way and the rest of a whole-document check.
-                        if super::kit::secondary(ui, t(lang, "Stop checking")).clicked() {
-                            self.job = None;
-                            self.wanted = false;
-                            self.pending.clear();
-                            self.stopped_at = Some(ui.ctx().input(|i| i.time));
+                let checking = self.job.is_some() || self.wanted || self.page_wanted;
+                if checking || self.paused {
+                    // Under way: what is being checked, Pause/Resume and Stop.
+                    ui.horizontal(|ui| {
+                        let done = self.units.iter().filter(|u| self.checked.contains_key(&u.hash)).count();
+                        if self.paused {
+                            ui.label(RichText::new(t(lang, "Paused")).size(12.5).color(p.muted));
+                        } else {
+                            ui.spinner();
+                            let what = if self.wanted {
+                                tf(lang, "Checking document… {c}/{t}", &[("c", &done.to_string()), ("t", &self.units.len().to_string())])
+                            } else {
+                                t(lang, "Checking this page…").to_string()
+                            };
+                            ui.label(RichText::new(what).size(12.5).color(p.muted));
                         }
-                    } else if super::kit::primary_enabled(ui, !all_checked, t(lang, "Check whole document")).clicked() {
-                        self.wanted = true;
-                        self.stopped_at = None;
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if super::kit::secondary(ui, t(lang, "Stop")).on_hover_text(t(lang, "Stop checking")).clicked() {
+                                self.job = None;
+                                self.wanted = false;
+                                self.page_wanted = false;
+                                self.paused = false;
+                                self.pending.clear();
+                                self.stopped_at = Some(ui.ctx().input(|i| i.time));
+                            }
+                            let label = if self.paused { t(lang, "Resume") } else { t(lang, "Pause") };
+                            if super::kit::secondary(ui, label).clicked() {
+                                self.paused = !self.paused;
+                            }
+                        });
+                    });
+                } else {
+                    ui.horizontal(|ui| {
+                        if super::kit::primary(ui, t(lang, "Check page")).on_hover_text(t(lang, "Check the text on screen")).clicked() {
+                            self.page_wanted = true;
+                            self.stopped_at = None;
+                        }
+                        if ui.add_enabled_ui(!all_checked, |ui| super::kit::secondary(ui, t(lang, "Whole document"))).inner.clicked() {
+                            self.wanted = true;
+                            self.stopped_at = None;
+                        }
+                    });
+                }
+                ui.add_space(6.0);
+                // Model, effort, thinking and checking as you type, right here.
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
+                    let current = s.model_for(&s.write_model).unwrap_or_default();
+                    let label = if current.is_empty() { t(lang, "No model — Settings › AI").to_string() } else { s.label(&current) };
+                    let mut picked = None;
+                    super::kit::chip_menu(ui, "themisio-writer-model", &label, 190.0, |ui| {
+                        for (group, models) in s.choices() {
+                            ui.label(RichText::new(group).size(11.0).color(p.muted));
+                            for (v, l) in models {
+                                if ui.selectable_label(current == v, l).clicked() {
+                                    picked = Some(v);
+                                }
+                            }
+                        }
+                    });
+                    if let Some(v) = picked {
+                        s.write_model = v;
+                        out.save = true;
                     }
-                    super::kit::hint(ui, if s.auto_check { t(lang, "As you type, only the text on screen is checked.") } else { "" });
+                    let effort_label = super::EFFORTS.iter().find(|(v, _)| *v == s.effort).map_or("Model default", |(_, l)| l);
+                    let mut effort = None;
+                    super::kit::chip_menu(ui, "themisio-writer-effort", t(lang, effort_label), 120.0, |ui| {
+                        ui.label(RichText::new(t(lang, "Effort")).size(11.0).color(p.muted));
+                        for (v, l) in super::EFFORTS {
+                            if ui.selectable_label(s.effort == *v, t(lang, l)).clicked() {
+                                effort = Some(v.to_string());
+                            }
+                        }
+                    });
+                    if let Some(e) = effort {
+                        s.effort = e;
+                        out.save = true;
+                    }
+                    if super::kit::pill_toggle(ui, &mut s.thinking, t(lang, "Thinking")).clicked() {
+                        out.save = true;
+                    }
+                    if super::kit::pill_toggle(ui, &mut s.auto_check, t(lang, "Check as you type")).on_hover_text(t(lang, "As you type, only the text on screen is checked.")).clicked() {
+                        self.stopped_at = None;
+                        out.save = true;
+                    }
                 });
                 ui.add_space(8.0);
                 // The four criteria: one tile each (click to show only that kind).

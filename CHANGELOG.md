@@ -2,6 +2,14 @@
 
 Lịch sử: Themisio có tên **Ostium** ở 0.1.0 và 0.2.0.
 
+## 0.5.5 — 2026-11-09
+- Bảng trợ lý viết có đủ nút điều khiển việc quét:
+  - **Quét trang** (phần chữ đang hiện) và **Cả tài liệu**.
+  - Trong lúc quét: dòng trạng thái (Đang quét trang… / Đang quét tài liệu… n/tổng) với **Tạm dừng /
+    Tiếp tục** và **Dừng**.
+  - **Kiểm tra khi gõ** bật/tắt ngay trong bảng.
+- Chọn model, effort và Thinking cho trợ lý viết ngay trong bảng (lưu vào Cài đặt).
+
 ## 0.5.4 — 2026-11-09
 - Sửa lỗi: thẻ gợi ý của trợ lý viết không còn hiện lên khi Cài đặt (hay bất kỳ hộp thoại, menu,
   popup nào) đang che chữ bên dưới.
