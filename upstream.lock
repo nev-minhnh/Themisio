@@ -7,3 +7,5 @@ gridcraft     https://github.com/storytold/gridcraft       dea064b8573a7662a4589
 pdfcraft      https://github.com/storytold/pdfcraft        5644d56c64af1529b0f9012874886fcad855c257
 craft-i18n    https://github.com/storytold/craft-i18n      1e515422afdda2f317af430c1f9d68a5f83935b4
 craft-fonts   https://github.com/storytold/craft-fonts     aced4137c022f1f587624d48e81ec77e1914a9cc
+# draw.io's web app (Apache-2.0), fetched shallow: only its tree at this commit is needed.
+drawio        https://github.com/jgraph/drawio             c72c9a98b7a6ce392556ed04c05e0ff19f43f5c3  shallow

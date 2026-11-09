@@ -2,6 +2,25 @@
 
 Lịch sử: Themisio có tên **Ostium** ở 0.1.0 và 0.2.0.
 
+## 0.6.0 — 2026-11-10
+- **draw.io** thành ứng dụng thứ năm (vàng, trên thanh ứng dụng; Ctrl+Alt+5, PDF chuyển sang
+  Ctrl+Alt+6). Dùng chính web app của draw.io (jgraph/drawio 32.6.10, không sửa đổi) chạy trong
+  Microsoft Edge WebView2 nên giữ **toàn bộ giao diện và nút chức năng** của draw.io: menu, thanh
+  công cụ, thư viện hình, bảng định dạng, mẫu, nhiều trang, xuất ảnh/PDF, in.
+  - Mở `.drawio`, `.dio`, `.drawio.svg`, `.drawio.png` (và `.xml`, hỏi mở bằng Văn bản hay draw.io).
+  - Tạo mới: thẻ **Sơ đồ trống** ở Trang chủ › Tạo mới, nút **+** trên thanh tab, và trang đầu của
+    draw.io (Sơ đồ trống, Từ mẫu có sẵn, Mở sơ đồ…).
+  - Lưu bằng Ctrl+S / nút Lưu của draw.io hoặc menu tab (Lưu, Lưu thành… chọn .drawio, .drawio.svg,
+    .drawio.png); đóng tab hay thoát khi chưa lưu sẽ hỏi Lưu / Không lưu / Hủy.
+  - draw.io được đóng gói sẵn trong themisio.exe, chạy ngoại tuyến, không tải gì từ mạng.
+- Bảng trợ lý viết: nút bật/tắt **Đang quét / Đã dừng quét** luôn hiện cạnh Quét trang và Cả tài
+  liệu. Tắt thì dừng ngay và không quét gì nữa (kể cả kiểm tra khi gõ) cho tới khi bật lại hoặc bấm
+  Quét trang / Cả tài liệu. Tạm dừng / Tiếp tục vẫn hiện khi đang quét.
+- Chọn một ứng dụng trên thanh bên khi chưa mở tệp nào sẽ vào **trang Home của ứng dụng đó** (Tạo
+  mới, mẫu, tệp gần đây) — kể cả CalcSheet và Trình chiếu, thay vì mở thẳng một bảng tính trống.
+- Đường báo thanh ứng dụng ở mép trái (khi thanh tự ẩn) mảnh hơn và là dải màu của năm ứng dụng:
+  đỏ PDF, cam Trình chiếu, vàng draw.io, xanh lá CalcSheet, xanh dương Văn bản.
+
 ## 0.5.5 — 2026-11-09
 - Bảng trợ lý viết có đủ nút điều khiển việc quét:
   - **Quét trang** (phần chữ đang hiện) và **Cả tài liệu**.

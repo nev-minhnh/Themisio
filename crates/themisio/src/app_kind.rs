@@ -1,4 +1,4 @@
-//! The four hosted apps and the pages of the shell.
+//! The five hosted apps and the pages of the shell.
 
 use egui::Color32;
 use serde::{Deserialize, Serialize};
@@ -13,10 +13,12 @@ pub enum AppKind {
     Grid,
     /// PdfCraft: PDF reading and editing.
     Pdf,
+    /// draw.io: diagrams.
+    Drawio,
 }
 
 impl AppKind {
-    pub const ALL: [Self; 4] = [Self::Word, Self::Deck, Self::Grid, Self::Pdf];
+    pub const ALL: [Self; 5] = [Self::Word, Self::Deck, Self::Grid, Self::Drawio, Self::Pdf];
 
     /// Stable id for settings and the command line.
     pub fn id(self) -> &'static str {
@@ -25,6 +27,7 @@ impl AppKind {
             Self::Deck => "deck",
             Self::Grid => "grid",
             Self::Pdf => "pdf",
+            Self::Drawio => "drawio",
         }
     }
 
@@ -39,6 +42,7 @@ impl AppKind {
             Self::Deck => "Presentation",
             Self::Grid => "CalcSheet",
             Self::Pdf => "PDF",
+            Self::Drawio => "draw.io",
         }
     }
 
@@ -49,6 +53,7 @@ impl AppKind {
             Self::Deck => Color32::from_rgb(0xF5, 0x8E, 0x1C),
             Self::Grid => Color32::from_rgb(0x2B, 0xB8, 0x6A),
             Self::Pdf => Color32::from_rgb(0xF0, 0x3C, 0x45),
+            Self::Drawio => Color32::from_rgb(0xF2, 0xBE, 0x1A),
         }
     }
 }

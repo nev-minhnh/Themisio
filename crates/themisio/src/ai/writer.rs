@@ -192,8 +192,9 @@ pub struct Writer {
     job: Option<Job<Batch>>,
     /// When the document last scrolled (checks wait until it has been still for a second).
     scrolled_at: f64,
-    /// Stop checking was pressed: checks as you type pause until the text changes again.
-    stopped_at: Option<f64>,
+    /// Checking is switched off (the Stop/Start checking toggle): nothing is sent at all until it
+    /// is switched back on, or Check page / Whole document is pressed.
+    halted: bool,
     /// Check the text on screen once (the Check page button), even with checking as you type off.
     page_wanted: bool,
     /// Checking is paused: nothing new is sent until it is resumed.
@@ -234,7 +235,7 @@ impl Default for Writer {
             pending: HashSet::new(),
             job: None,
             scrolled_at: 0.0,
-            stopped_at: None,
+            halted: false,
             page_wanted: false,
             paused: false,
             changed_at: 0.0,
@@ -453,8 +454,7 @@ impl Writer {
             self.scrolled_at = now;
         }
         let still = now - self.scrolled_at >= 1.0;
-        let stopped = self.stopped_at.is_some_and(|t| self.changed_at <= t);
-        let due = !self.paused && (self.wanted || self.page_wanted || (s.auto_check && still && !stopped && now - self.changed_at >= delay));
+        let due = !self.paused && !self.halted && (self.wanted || self.page_wanted || (s.auto_check && still && now - self.changed_at >= delay));
         if self.job.is_none() && due {
             // As you type, only the text on screen is checked; the whole document only when you
             // ask (Check the whole document, Ctrl+Alt+G). Checked, unchanged text never goes again.
@@ -723,7 +723,7 @@ impl Writer {
                 let all_checked = self.units.iter().all(|u| self.checked.contains_key(&u.hash));
                 let checking = self.job.is_some() || self.wanted || self.page_wanted;
                 if checking || self.paused {
-                    // Under way: what is being checked, Pause/Resume and Stop.
+                    // Under way: what is being checked, and Pause/Resume.
                     ui.horizontal(|ui| {
                         let done = self.units.iter().filter(|u| self.checked.contains_key(&u.hash)).count();
                         if self.paused {
@@ -738,32 +738,42 @@ impl Writer {
                             ui.label(RichText::new(what).size(12.5).color(p.muted));
                         }
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if super::kit::secondary(ui, t(lang, "Stop")).on_hover_text(t(lang, "Stop checking")).clicked() {
-                                self.job = None;
-                                self.wanted = false;
-                                self.page_wanted = false;
-                                self.paused = false;
-                                self.pending.clear();
-                                self.stopped_at = Some(ui.ctx().input(|i| i.time));
-                            }
                             let label = if self.paused { t(lang, "Resume") } else { t(lang, "Pause") };
                             if super::kit::secondary(ui, label).clicked() {
                                 self.paused = !self.paused;
                             }
                         });
                     });
-                } else {
-                    ui.horizontal(|ui| {
-                        if super::kit::primary(ui, t(lang, "Check page")).on_hover_text(t(lang, "Check the text on screen")).clicked() {
-                            self.page_wanted = true;
-                            self.stopped_at = None;
-                        }
-                        if ui.add_enabled_ui(!all_checked, |ui| super::kit::secondary(ui, t(lang, "Whole document"))).inner.clicked() {
-                            self.wanted = true;
-                            self.stopped_at = None;
+                    ui.add_space(6.0);
+                }
+                // Always there: Check page, Whole document, and the Stop/Start checking toggle.
+                ui.horizontal(|ui| {
+                    if super::kit::primary_enabled(ui, !checking || self.paused, t(lang, "Check page")).on_hover_text(t(lang, "Check the text on screen")).clicked() {
+                        self.page_wanted = true;
+                        self.halted = false;
+                        self.paused = false;
+                    }
+                    if ui.add_enabled_ui(!all_checked && !self.wanted, |ui| super::kit::secondary(ui, t(lang, "Whole document"))).inner.clicked() {
+                        self.wanted = true;
+                        self.halted = false;
+                        self.paused = false;
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let mut on = !self.halted;
+                        let label = if self.halted { t(lang, "Checking off") } else { t(lang, "Checking on") };
+                        let tip = if self.halted { t(lang, "Start checking") } else { t(lang, "Stop checking") };
+                        if super::kit::pill_toggle(ui, &mut on, label).on_hover_text(tip).clicked() {
+                            self.halted = !on;
+                            if self.halted {
+                                self.job = None;
+                                self.wanted = false;
+                                self.page_wanted = false;
+                                self.paused = false;
+                                self.pending.clear();
+                            }
                         }
                     });
-                }
+                });
                 ui.add_space(6.0);
                 // Model, effort, thinking and checking as you type, right here.
                 ui.horizontal_wrapped(|ui| {
@@ -803,7 +813,6 @@ impl Writer {
                         out.save = true;
                     }
                     if super::kit::pill_toggle(ui, &mut s.auto_check, t(lang, "Check as you type")).on_hover_text(t(lang, "As you type, only the text on screen is checked.")).clicked() {
-                        self.stopped_at = None;
                         out.save = true;
                     }
                 });

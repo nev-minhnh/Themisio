@@ -10,6 +10,7 @@ use crate::i18n::Lang;
 use crate::route::Intent;
 
 pub mod deck;
+pub mod drawio;
 pub mod grid;
 pub mod pdf;
 pub mod sheet_context;
@@ -85,6 +86,14 @@ pub trait Host {
     fn new_document(&mut self, ctx: &egui::Context);
     /// The app's own start screen, where it has one (WordCraft's templates and recent files).
     fn show_start_screen(&mut self) {}
+    /// Something of Themisio's (a dialog, a menu, the app bar, another page) is over the app:
+    /// apps drawn outside egui (draw.io's webview) hide meanwhile.
+    fn set_covered(&mut self, _covered: bool) {}
+    /// Nothing the user opened or wrote is on screen (no documents, or only the blank one the
+    /// app starts with): the app shows its start screen when chosen from the rail.
+    fn is_blank(&self) -> bool {
+        self.tabs().is_some_and(|t| t.is_empty())
+    }
     /// Show the interface in `lang`. Applied from the next pass the app is shown.
     fn set_language(&mut self, lang: Lang);
     /// Light or dark, as Themisio's theme says (every app follows it).
@@ -178,6 +187,7 @@ pub struct Hosts {
     pub deck: Option<deck::DeckHost>,
     pub grid: Option<grid::GridHost>,
     pub pdf: Option<pdf::PdfHost>,
+    pub drawio: Option<drawio::DrawioHost>,
 }
 
 impl Hosts {
@@ -187,6 +197,7 @@ impl Hosts {
             AppKind::Deck => self.deck.as_mut().map(|h| h as &mut dyn Host),
             AppKind::Grid => self.grid.as_mut().map(|h| h as &mut dyn Host),
             AppKind::Pdf => self.pdf.as_mut().map(|h| h as &mut dyn Host),
+            AppKind::Drawio => self.drawio.as_mut().map(|h| h as &mut dyn Host),
         }
     }
 
@@ -196,6 +207,7 @@ impl Hosts {
             AppKind::Deck => self.deck.is_some(),
             AppKind::Grid => self.grid.is_some(),
             AppKind::Pdf => self.pdf.is_some(),
+            AppKind::Drawio => self.drawio.is_some(),
         }
     }
 
@@ -210,6 +222,7 @@ impl Hosts {
             AppKind::Deck => self.deck = Some(deck::DeckHost::new(ctx, lang)),
             AppKind::Grid => self.grid = Some(grid::GridHost::new(ctx, lang)),
             AppKind::Pdf => self.pdf = Some(pdf::PdfHost::new(ctx, frame.storage(), lang)),
+            AppKind::Drawio => self.drawio = Some(drawio::DrawioHost::new(ctx, lang)),
         }
         if let Some(h) = self.get(kind) {
             h.set_dark(dark);
@@ -227,6 +240,7 @@ impl Hosts {
             AppKind::Deck => self.deck = None,
             AppKind::Grid => self.grid = None,
             AppKind::Pdf => self.pdf = None,
+            AppKind::Drawio => self.drawio = None,
         }
     }
 

@@ -63,6 +63,9 @@ winreg = "0.55"
 open = "5"
 # API keys in Windows Credential Manager.
 keyring = { version = "3", features = ["windows-native"] }
+# draw.io: its web app in a WebView2 inside Themisio's window, served from the zip build.rs makes.
+wry = { version = "0.57", default-features = false }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 winit = { version = "0.30", default-features = false, features = ["x11", "wayland"] }
@@ -73,3 +76,4 @@ arboard = { version = "3.7", default-features = false, features = ["image-data",
 
 [build-dependencies]
 winresource = "0.1"
+zip = { version = "9", default-features = false, features = ["deflate"] }

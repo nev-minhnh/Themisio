@@ -40,6 +40,8 @@ pub const WORD_EXTS: &[&str] = &[
 pub const DECK_EXTS: &[&str] = &["deckcraft", "pptx", "potx", "ppsx", "txt", "md"];
 /// Workbooks and the data formats GridCraft reads.
 pub const GRID_EXTS: &[&str] = &["xlsx", "xlsm", "xltx", "xltm", "xls", "xlt", "xlsb", "ods", "csv", "tsv", "tab", "txt", "slk", "json", "html", "htm"];
+/// draw.io diagrams (pictures with a diagram inside are `drawio.svg` / `drawio.png`).
+pub const DRAWIO_EXTS: &[&str] = &["drawio", "dio", "drawio.svg", "drawio.png", "xml"];
 /// PDF documents and form data.
 pub const PDF_EXTS: &[&str] = &["pdf", "fdf", "xfdf"];
 /// Pictures and text PdfCraft turns into a PDF (`pdfcraft_engine::CONVERTIBLE`, kept in step).
@@ -62,6 +64,9 @@ pub fn registered_extensions() -> Vec<(&'static str, AppKind)> {
     for e in ["pdf", "fdf", "xfdf"] {
         out.push((e, AppKind::Pdf));
     }
+    for e in ["drawio", "dio"] {
+        out.push((e, AppKind::Drawio));
+    }
     for e in ["txt", "md", "markdown", "html", "htm", "tex", "json", "xml", "slk"] {
         out.push((e, AppKind::Word));
     }
@@ -74,6 +79,11 @@ pub fn extension(path: &Path) -> String {
     if name.ends_with(".wcraft.json") {
         return "wcraft.json".to_string();
     }
+    for ext in ["drawio.svg", "drawio.png"] {
+        if name.ends_with(&format!(".{ext}")) {
+            return ext.to_string();
+        }
+    }
     path.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default()
 }
 
@@ -84,7 +94,9 @@ pub fn targets(path: &Path) -> Vec<Target> {
     match ext {
         // Unambiguous: one app, one way.
         "docx" | "docm" | "dotx" | "dotm" | "doc" | "dot" | "rtf" | "odt" | "ott" | "fodt" | "mht" | "mhtml" | "tex" | "latex" | "ltx"
-        | "xml" | "wcraft.json" => vec![edit(AppKind::Word)],
+        | "wcraft.json" => vec![edit(AppKind::Word)],
+        "drawio" | "dio" | "drawio.svg" | "drawio.png" => vec![edit(AppKind::Drawio)],
+        "xml" => vec![edit(AppKind::Word), edit(AppKind::Drawio)],
         "pptx" | "potx" | "deckcraft" => vec![edit(AppKind::Deck)],
         "ppsx" => vec![Target { app: AppKind::Deck, intent: Intent::SlideShow }, edit(AppKind::Deck)],
         "xlsx" | "xlsm" | "xltx" | "xltm" | "xls" | "xlt" | "xlsb" | "ods" | "csv" | "tsv" | "tab" | "slk" => vec![edit(AppKind::Grid)],
@@ -121,13 +133,14 @@ pub fn app_takes_drop(app: AppKind, path: &Path) -> bool {
         }
         AppKind::Grid => picture || GRID_EXTS.contains(&ext),
         AppKind::Pdf => PDF_EXTS.contains(&ext) || PDF_CONVERTIBLE.contains(&ext),
+        AppKind::Drawio => false,
     }
 }
 
 /// The filter list for Themisio's own Open dialog: everything, then per app.
 pub fn open_filters() -> Vec<(&'static str, Vec<&'static str>)> {
     let mut all: Vec<&'static str> = Vec::new();
-    for list in [WORD_EXTS, DECK_EXTS, GRID_EXTS, PDF_EXTS, PDF_CONVERTIBLE] {
+    for list in [WORD_EXTS, DECK_EXTS, GRID_EXTS, DRAWIO_EXTS, PDF_EXTS, PDF_CONVERTIBLE] {
         for e in list {
             if !all.contains(e) {
                 all.push(e);
@@ -139,6 +152,7 @@ pub fn open_filters() -> Vec<(&'static str, Vec<&'static str>)> {
         ("word", WORD_EXTS.to_vec()),
         ("deck", DECK_EXTS.to_vec()),
         ("grid", GRID_EXTS.to_vec()),
+        ("drawio", DRAWIO_EXTS.to_vec()),
         ("pdf", PDF_EXTS.iter().chain(PDF_CONVERTIBLE).copied().collect()),
     ]
 }
@@ -153,6 +167,9 @@ mod tests {
         assert_eq!(targets(Path::new("talk.pptx"))[0].app, AppKind::Deck);
         assert_eq!(targets(Path::new("book.xlsx"))[0].app, AppKind::Grid);
         assert_eq!(targets(Path::new("scan.pdf"))[0].app, AppKind::Pdf);
+        assert_eq!(targets(Path::new("flow.drawio"))[0].app, AppKind::Drawio);
+        assert_eq!(targets(Path::new("flow.drawio.svg"))[0].app, AppKind::Drawio);
+        assert_eq!(targets(Path::new("flow.drawio.PNG"))[0].app, AppKind::Drawio);
     }
 
     #[test]

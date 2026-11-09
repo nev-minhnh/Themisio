@@ -3,8 +3,8 @@
 <h1 align="center">Themisio</h1>
 <p align="center"><b>Themisio – Make your documents glow.</b></p>
 <p align="center">
-  Văn bản, trình chiếu, bảng tính và PDF trong một ứng dụng Windows 11 viết bằng Rust.<br>
-  <i>Documents, presentations, spreadsheets and PDFs in one native Windows 11 app, written in Rust.</i>
+  Văn bản, trình chiếu, bảng tính, sơ đồ và PDF trong một ứng dụng Windows 11 viết bằng Rust.<br>
+  <i>Documents, presentations, spreadsheets, diagrams and PDFs in one native Windows 11 app, written in Rust.</i>
 </p>
 
 <p align="center">
@@ -17,20 +17,21 @@
 
 ## Giới thiệu
 
-Themisio gộp bốn ứng dụng mã nguồn mở của nhóm ArtCraft (storytold) vào **một cửa sổ**:
+Themisio gộp bốn ứng dụng mã nguồn mở của nhóm ArtCraft (storytold) và trình vẽ sơ đồ **draw.io** vào **một cửa sổ**:
 
 | Trong Themisio | Dựa trên | Mở được |
 |---|---|---|
 | **Documents** (Văn bản) | [WordCraft](https://github.com/storytold/wordcraft) | `.docx .doc .dotx .rtf .odt .txt .md .html` |
 | **Presentation** (Trình chiếu) | [DeckCraft](https://github.com/storytold/deckcraft) | `.pptx .potx .ppsx .deckcraft` |
 | **CalcSheet** (Bảng tính) | [GridCraft](https://github.com/storytold/gridcraft) | `.xlsx .xlsm .xls .xlsb .ods .csv .tsv` |
+| **draw.io** (Sơ đồ) | [draw.io](https://github.com/jgraph/drawio) (web app trong WebView2) | `.drawio .dio .drawio.svg .drawio.png .xml` |
 | **PDF** | [PdfCraft](https://github.com/storytold/pdfcraft) | `.pdf .fdf .xfdf`, ảnh → tạo PDF |
 
 Mỗi ứng dụng giữ **đủ tính năng và giao diện** của nó (tạo mới, mở, lưu, xuất PDF/ảnh/CSV…, in,
 tự khôi phục). Themisio thêm phần dùng chung:
 
-- **Thanh ứng dụng** bên trái: Trang chủ và bốn ứng dụng. Mặc định **tự ẩn**: một đường vàng mảnh
-  ở mép trái báo chỗ đưa chuột vào để thanh trượt ra; nút thanh bên để giữ thanh luôn hiện.
+- **Thanh ứng dụng** bên trái: Trang chủ và năm ứng dụng. Mặc định **tự ẩn**: một đường mảnh năm
+  màu (đỏ PDF, cam Trình chiếu, vàng draw.io, xanh lá CalcSheet, xanh dương Văn bản) ở mép trái báo chỗ đưa chuột vào để thanh trượt ra; nút thanh bên để giữ thanh luôn hiện.
 - **Thanh tab kiểu Microsoft Edge** cho mỗi ứng dụng: mỗi tệp đang mở là một tab (bấm để chuyển,
   × hoặc chuột giữa để đóng, + để tạo mới, chấm báo chưa lưu).
 - **Trang chủ**: tạo mới, mở tệp, tệp gần đây, kéo thả tệp vào bất kỳ đâu.
@@ -144,14 +145,15 @@ Microsoft; các định dạng tệp được đọc/ghi theo đặc tả công 
 ## English
 
 **Themisio – Make your documents glow.** One native Windows 11 app (Rust, egui, Direct3D 12) that
-hosts four open-source editors from the ArtCraft team side by side, each with all of its own
-features: **Documents** (WordCraft), **Presentation** (DeckCraft), **CalcSheet** (GridCraft) and
+hosts four open-source editors from the ArtCraft team and the draw.io diagram editor side by side,
+each with all of its own features: **Documents** (WordCraft), **Presentation** (DeckCraft),
+**CalcSheet** (GridCraft), **draw.io** (jgraph/drawio's own web app, unchanged, in WebView2) and
 **PDF** (PdfCraft).
 
-Themisio adds an auto-hiding app bar (a thin gold line marks the window's edge), Edge-style
+Themisio adds an auto-hiding app bar (a thin line in the five apps' colours marks the window's edge), Edge-style
 document tabs for every app, a Home page with recent files, extension-based routing (`.ppsx`
 starts its slide show, pictures become PDFs, shared text formats ask once), English and Vietnamese
-for all four apps, one light/dark theme across them, Edge-like motion (wheel smoothing, page
+for every app, one light/dark theme across them, Edge-like motion (wheel smoothing, page
 fades, ribbons that ease in on tab change, hover fades, gliding menus — all following Windows'
 *Animation effects*), low memory use (lazy app start, small GPU allocations, working-set trimming
 in the background, an OpenGL mode), single-instance file hand-off, per-user file associations, and
@@ -169,4 +171,4 @@ when you allow it — then checks the cells it wrote for errors.
 then `scripts\build.ps1` (Rust 1.95+, MSVC). Every push to `main` builds on GitHub Actions.
 
 Licensed under **MIT OR Apache-2.0**. The four engines are © the ArtCraft team and contributors,
-also MIT OR Apache-2.0; see [NOTICE](NOTICE) and [ATTRIBUTION.md](ATTRIBUTION.md).
+also MIT OR Apache-2.0; draw.io is © JGraph Ltd, Apache-2.0; see [NOTICE](NOTICE) and [ATTRIBUTION.md](ATTRIBUTION.md).

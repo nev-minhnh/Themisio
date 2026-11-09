@@ -15,6 +15,7 @@ fn prog_id(app: AppKind, ext: &str) -> (&'static str, &'static str) {
         (AppKind::Deck, _) => ("Themisio.Presentation", "Themisio Presentation"),
         (AppKind::Grid, _) => ("Themisio.Workbook", "Themisio Workbook"),
         (AppKind::Pdf, _) => ("Themisio.PDF", "Themisio PDF Document"),
+        (AppKind::Drawio, _) => ("Themisio.Diagram", "Themisio Diagram (draw.io)"),
     }
 }
 

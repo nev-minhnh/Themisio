@@ -123,8 +123,8 @@ fn vi(en: &str) -> Option<&'static str> {
         "On" => "Bật",
         "Interface size" => "Cỡ giao diện",
         "File types" => "Loại tệp",
-        "Open documents, presentations, workbooks and PDFs with Themisio" => {
-            "Mở tài liệu, bản trình bày, sổ làm việc và PDF bằng Themisio"
+        "Open documents, presentations, workbooks, diagrams and PDFs with Themisio" => {
+            "Mở tài liệu, bản trình bày, sổ làm việc, sơ đồ và PDF bằng Themisio"
         }
         "Register file types" => "Đăng ký loại tệp",
         "Choose default apps…" => "Chọn ứng dụng mặc định…",
@@ -133,7 +133,7 @@ fn vi(en: &str) -> Option<&'static str> {
         }
         "Couldn't register file types: {error}" => "Không thể đăng ký loại tệp: {error}",
         "About Themisio" => "Giới thiệu Themisio",
-        "Documents, presentations, spreadsheets and PDFs in one window." => "Văn bản, trình chiếu, bảng tính và PDF trong một cửa sổ.",
+        "Documents, presentations, spreadsheets, diagrams and PDFs in one window." => "Văn bản, trình chiếu, bảng tính, sơ đồ và PDF trong một cửa sổ.",
         "Open-source licences" => "Giấy phép mã nguồn mở",
         "Themisio is built on open-source engines by the ArtCraft team (MIT OR Apache-2.0):" => {
             "Themisio được xây dựng trên các bộ máy mã nguồn mở của nhóm ArtCraft (MIT OR Apache-2.0):"
@@ -336,8 +336,8 @@ fn vi(en: &str) -> Option<&'static str> {
         "Low latency" => "Độ trễ thấp",
         "Light" => "Sáng",
         "Dark" => "Tối",
-        "Keyboard: Ctrl+Alt+1…5 switch apps, Ctrl+Alt+O opens a file." => {
-            "Phím tắt: Ctrl+Alt+1…5 chuyển ứng dụng, Ctrl+Alt+O mở tệp."
+        "Keyboard: Ctrl+Alt+1…6 switch apps, Ctrl+Alt+O opens a file." => {
+            "Phím tắt: Ctrl+Alt+1…6 chuyển ứng dụng, Ctrl+Alt+O mở tệp."
         }
         "(remove)" => "(xóa)",
         "AI features" => "Tính năng AI",
@@ -370,7 +370,7 @@ fn vi(en: &str) -> Option<&'static str> {
         "Engagement" => "Cuốn hút",
         "Enter to send · Shift+Enter for a new line" => "Enter để gửi · Shift+Enter để xuống dòng",
         "Files" => "Tệp",
-        "For Themisio and all four apps." => "Cho Themisio và cả bốn ứng dụng.",
+        "For Themisio and all its apps." => "Cho Themisio và mọi ứng dụng.",
         "For your Windows account only; no administrator rights needed." => "Chỉ cho tài khoản Windows của bạn; không cần quyền quản trị.",
         "Formality" => "Mức trang trọng",
         "Generate" => "Tạo",
@@ -491,6 +491,34 @@ fn vi(en: &str) -> Option<&'static str> {
         "Press Check whole document, or turn on Check as you type in Settings › AI." => "Bấm Quét cả tài liệu, hoặc bật Kiểm tra khi gõ trong Cài đặt › AI.",
         "As you type, only the text on screen is checked." => "Khi gõ, chỉ phần đang hiện trên màn hình được kiểm tra.",
         "Stop checking" => "Dừng quét",
+        "Start checking" => "Bật quét lại",
+        "Blank diagram" => "Sơ đồ trống",
+        "Diagrams: draw.io by JGraph Ltd (Apache-2.0)." => "Sơ đồ: draw.io của JGraph Ltd (Apache-2.0).",
+        "Diagrams" => "Sơ đồ",
+        "Draw flowcharts, UML and network diagrams" => "Vẽ lưu đồ, sơ đồ UML và sơ đồ mạng",
+        "Couldn't open {name}: {error}" => "Không thể mở {name}: {error}",
+        "Couldn't save {name}: {error}" => "Không thể lưu {name}: {error}",
+        "Don't save" => "Không lưu",
+        "Editable PNG picture (.drawio.png)" => "Ảnh PNG chỉnh sửa được (.drawio.png)",
+        "Editable SVG picture (.drawio.svg)" => "Ảnh SVG chỉnh sửa được (.drawio.svg)",
+        "Flowcharts, UML, network, business…" => "Lưu đồ, UML, mạng, kinh doanh…",
+        "Flowcharts, org charts, network and UML diagrams, mind maps and more." => "Lưu đồ, sơ đồ tổ chức, sơ đồ mạng và UML, sơ đồ tư duy và nhiều hơn nữa.",
+        "From a template" => "Từ mẫu có sẵn",
+        "Open a diagram" => "Mở sơ đồ",
+        "Open a diagram…" => "Mở sơ đồ…",
+        "Open as a diagram" => "Mở dưới dạng sơ đồ",
+        "Save diagram" => "Lưu sơ đồ",
+        "Save your changes?" => "Lưu các thay đổi?",
+        "Start from an empty page" => "Bắt đầu từ trang trống",
+        ".drawio, .drawio.svg, .drawio.png, .xml" => ".drawio, .drawio.svg, .drawio.png, .xml",
+        "The draw.io editor runs on Windows 10 and 11 (Microsoft Edge WebView2)." => "Trình soạn draw.io chạy trên Windows 10 và 11 (Microsoft Edge WebView2).",
+        "draw.io couldn't start: {error}" => "Không thể khởi động draw.io: {error}",
+        "draw.io diagram" => "Sơ đồ draw.io",
+        "draw.io didn't make the picture" => "draw.io không tạo được ảnh",
+        "draw.io isn't part of this build (scripts/fetch-upstream)." => "Bản dựng này không kèm draw.io (scripts/fetch-upstream).",
+        "{names} has changes that aren't saved." => "{names} có thay đổi chưa được lưu.",
+        "Checking on" => "Đang quét",
+        "Checking off" => "Đã dừng quét",
         "Paused" => "Đã tạm dừng",
         "Checking document… {c}/{t}" => "Đang quét tài liệu… {c}/{t}",
         "Checking this page…" => "Đang quét trang…",

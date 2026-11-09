@@ -100,6 +100,7 @@ fn app_arg(s: Option<String>) -> Option<AppKind> {
         "slides" | "deck" | "deckcraft" | "presentation" => Some(AppKind::Deck),
         "sheets" | "grid" | "gridcraft" | "workbook" => Some(AppKind::Grid),
         "pdf" | "pdfcraft" => Some(AppKind::Pdf),
+        "drawio" | "draw.io" | "diagram" | "diagrams" => Some(AppKind::Drawio),
         other => AppKind::from_id(other),
     }
 }

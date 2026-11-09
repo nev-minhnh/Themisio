@@ -29,6 +29,7 @@ pub fn label(lang: Lang, page: Page) -> &'static str {
         (Lang::Vi, Page::App(AppKind::Deck)) => "Trình chiếu",
         (Lang::Vi, Page::App(AppKind::Grid)) => "Bảng tính",
         (Lang::Vi, Page::App(AppKind::Pdf)) => "PDF",
+        (Lang::Vi, Page::App(AppKind::Drawio)) => "Sơ đồ",
     }
 }
 
@@ -38,6 +39,7 @@ pub fn description(lang: Lang, kind: AppKind) -> &'static str {
         AppKind::Deck => t(lang, "Build and present slide shows"),
         AppKind::Grid => t(lang, "Calculate, chart and analyse data"),
         AppKind::Pdf => t(lang, "Read, annotate, sign and edit PDFs"),
+        AppKind::Drawio => t(lang, "Draw flowcharts, UML and network diagrams"),
     }
 }
 
@@ -70,7 +72,7 @@ pub fn show(ui: &mut Ui, rect: Rect, shown: Page, loaded: &[AppKind], lang: Lang
         action = Some(RailAction::Show(Page::Home));
     }
 
-    let pages = [Page::Home, Page::App(AppKind::Word), Page::App(AppKind::Deck), Page::App(AppKind::Grid), Page::App(AppKind::Pdf)];
+    let pages = [Page::Home, Page::App(AppKind::Word), Page::App(AppKind::Deck), Page::App(AppKind::Grid), Page::App(AppKind::Drawio), Page::App(AppKind::Pdf)];
     let top = rect.top() + 66.0;
     let step = ITEM + 4.0;
     let index = pages.iter().position(|p| *p == shown).unwrap_or(0) as f32;
@@ -226,6 +228,20 @@ pub fn draw_app_icon(p: &egui::Painter, c: Pos2, kind: AppKind, _fg: Color32, fi
             p.line_segment([pos2(c.x + 2.0, c.y - 3.5), pos2(c.x + 5.5, c.y - 3.5)], thin);
             p.line_segment([pos2(c.x - 2.5, c.y + 0.5), pos2(c.x + 2.5, c.y + 0.5)], s);
             p.line_segment([pos2(c.x - 2.5, c.y + 3.8), pos2(c.x + 1.0, c.y + 3.8)], s);
+        }
+        AppKind::Drawio => {
+            // Three boxes joined: a little diagram.
+            let a = Rect::from_center_size(pos2(c.x, c.y - 5.0), vec2(7.0, 5.0));
+            let b = Rect::from_center_size(pos2(c.x - 5.0, c.y + 5.0), vec2(6.0, 4.5));
+            let d = Rect::from_center_size(pos2(c.x + 5.0, c.y + 5.0), vec2(6.0, 4.5));
+            for r in [a, b, d] {
+                p.rect_filled(r, CornerRadius::same(1), ink);
+            }
+            let thin = Stroke::new(1.2, ink);
+            p.line_segment([a.center_bottom(), pos2(c.x, c.y + 0.5)], thin);
+            p.line_segment([pos2(b.center().x, c.y + 0.5), pos2(d.center().x, c.y + 0.5)], thin);
+            p.line_segment([pos2(b.center().x, c.y + 0.5), b.center_top()], thin);
+            p.line_segment([pos2(d.center().x, c.y + 0.5), d.center_top()], thin);
         }
     }
 }

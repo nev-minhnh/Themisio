@@ -377,6 +377,15 @@ impl Host for GridHost {
         self.app.run(id, params).map_err(|e| e.to_string())
     }
 
+    fn show_start_screen(&mut self) {
+        // GridCraft's own start page: File › Home (new workbook, templates, recent files).
+        self.app.open_backstage(gridcraft_ui_egui::backstage::Page::Home);
+    }
+
+    fn is_blank(&self) -> bool {
+        self.app.session.documents().iter().all(|d| d.path.is_none() && !d.is_dirty())
+    }
+
     fn activate_tab(&mut self, id: u64) {
         if let Err(e) = self.app.run("window.activate", serde_json::json!({"window": id})) {
             log::warn!("CalcSheet: switch to {id}: {e}");

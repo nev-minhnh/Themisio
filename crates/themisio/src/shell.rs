@@ -279,7 +279,7 @@ impl Themisio {
         if let Some(kind) = page.app()
             && self.hosts.is_loaded(kind)
             && let Some(host) = self.hosts.get(kind)
-            && host.tabs().is_some_and(|t| t.is_empty())
+            && host.is_blank()
         {
             host.show_start_screen();
         }
@@ -343,7 +343,7 @@ impl Themisio {
             match item {
                 Queued::Open(path, intent) => host.open(ctx, &path, intent),
                 // A freshly started app already has its blank document (PdfCraft has none).
-                Queued::New if fresh && kind != AppKind::Pdf => {}
+                Queued::New if fresh && !matches!(kind, AppKind::Pdf | AppKind::Drawio) => {}
                 Queued::New => host.new_document(ctx),
                 Queued::StartScreen => host.show_start_screen(),
             }
@@ -363,8 +363,8 @@ impl Themisio {
                 let dark = self.applied_dark.unwrap_or(false);
                 self.hosts.ensure(kind, ctx, frame, self.lang, dark);
                 fresh = true;
-                // Started from the rail with nothing to open: WordCraft's own start screen.
-                if kind == AppKind::Word && self.queue.get(&kind).is_none_or(Vec::is_empty) {
+                // Started from the rail with nothing to open: the app's own start screen.
+                if !matches!(kind, AppKind::Pdf | AppKind::Drawio) && self.queue.get(&kind).is_none_or(Vec::is_empty) {
                     self.enqueue(kind, Queued::StartScreen);
                 }
             }
@@ -506,6 +506,7 @@ impl Themisio {
                     "word" => t(lang, "Documents"),
                     "deck" => t(lang, "Presentations"),
                     "grid" => t(lang, "Spreadsheets"),
+                    "drawio" => t(lang, "Diagrams"),
                     _ => t(lang, "PDF documents"),
                 };
                 dialog = dialog.add_filter(label, &exts);
@@ -562,14 +563,14 @@ impl Themisio {
             AppKind::Word => a.documents,
             AppKind::Deck => a.presentation,
             AppKind::Grid => a.calcsheet,
-            AppKind::Pdf => false,
+            AppKind::Pdf | AppKind::Drawio => false,
         }
     }
 
     /// The writing assistant, translation and the CalcSheet assistant, over app `kind`.
     /// Whether the AI pane (the CalcSheet assistant or the writing assistant) is open over `kind`.
     fn dock_open(&self, kind: AppKind) -> bool {
-        (kind == AppKind::Grid && self.settings.ai.apps.calcsheet && self.sheet_chat.open) || (kind != AppKind::Pdf && self.writing_on(kind) && self.writer.panel)
+        (kind == AppKind::Grid && self.settings.ai.apps.calcsheet && self.sheet_chat.open) || (self.writing_on(kind) && self.writer.panel)
     }
 
     /// `area`: the app's page; `dock`: the docked pane's rectangle while it is (being) shown.
@@ -578,7 +579,7 @@ impl Themisio {
         let lang = self.lang;
         let writing = self.writing_on(kind);
         crate::ai::assist::set_menu_context(lang, writing);
-        if kind == AppKind::Pdf {
+        if matches!(kind, AppKind::Pdf | AppKind::Drawio) {
             return;
         }
         // A right-click menu item or a shortcut.
@@ -1089,6 +1090,7 @@ impl Themisio {
                     (AppKind::Deck, _) => t(lang, "Import as slides (outline)"),
                     (AppKind::Grid, _) => t(lang, "Open as data in a workbook"),
                     (AppKind::Pdf, _) => t(lang, "PDF"),
+                    (AppKind::Drawio, _) => t(lang, "Open as a diagram"),
                 };
                 let text = format!("{}  ·  {}", what, target.app.name());
                 ui.radio_value(&mut ch.picked, i, text);
@@ -1198,7 +1200,7 @@ impl Themisio {
                             SettingsPage::General => {
                                 kit::page_title(ui, t(lang, "General"), t(lang, "Language, look and the app bar."));
                                 kit::card(ui, |ui| {
-                                    kit::setting_row(ui, t(lang, "Language"), t(lang, "For Themisio and all four apps."), |ui| {
+                                    kit::setting_row(ui, t(lang, "Language"), t(lang, "For Themisio and all its apps."), |ui| {
                                         segmented(ui, &mut language, &[(LangPref::System, t(lang, "Same as Windows")), (LangPref::En, "English"), (LangPref::Vi, "Tiếng Việt")]);
                                     });
                                     kit::row_rule(ui);
@@ -1238,7 +1240,7 @@ impl Themisio {
                                 }
                             }
                             SettingsPage::Files => {
-                                kit::page_title(ui, t(lang, "Files"), t(lang, "Open documents, presentations, workbooks and PDFs with Themisio"));
+                                kit::page_title(ui, t(lang, "Files"), t(lang, "Open documents, presentations, workbooks, diagrams and PDFs with Themisio"));
                                 kit::card(ui, |ui| {
                                     kit::setting_row(ui, t(lang, "Register file types"), t(lang, "For your Windows account only; no administrator rights needed."), |ui| {
                                         if kit::primary(ui, t(lang, "Register")).clicked() {
@@ -1351,13 +1353,15 @@ impl Themisio {
                 ui.label(RichText::new(format!("{} {}", t(lang, "Version"), crate::VERSION)).small().weak());
             });
             ui.add_space(10.0);
-            ui.label(t(lang, "Documents, presentations, spreadsheets and PDFs in one window."));
+            ui.label(t(lang, "Documents, presentations, spreadsheets, diagrams and PDFs in one window."));
             ui.add_space(4.0);
             egui::CollapsingHeader::new(t(lang, "Open-source licences")).show(ui, |ui| {
                 ui.label(RichText::new(t(lang, "Themisio is built on open-source engines by the ArtCraft team (MIT OR Apache-2.0):")).small());
                 for (name, url) in crate::UPSTREAMS {
                     ui.hyperlink_to(RichText::new(*name).small(), *url);
                 }
+                ui.label(RichText::new(t(lang, "Diagrams: draw.io by JGraph Ltd (Apache-2.0).")).small());
+                ui.hyperlink_to(RichText::new("jgraph/drawio").small(), "https://github.com/jgraph/drawio");
                 ui.hyperlink_to(RichText::new("github.com/nev-minhnh/Themisio").small(), "https://github.com/nev-minhnh/Themisio");
             });
             ui.add_space(10.0);
@@ -1408,7 +1412,8 @@ impl Themisio {
             (Key::Num2, Page::App(AppKind::Word)),
             (Key::Num3, Page::App(AppKind::Deck)),
             (Key::Num4, Page::App(AppKind::Grid)),
-            (Key::Num5, Page::App(AppKind::Pdf)),
+            (Key::Num5, Page::App(AppKind::Drawio)),
+            (Key::Num6, Page::App(AppKind::Pdf)),
         ];
         for (key, page) in pages {
             if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(mods, key))) {
@@ -1599,6 +1604,9 @@ impl eframe::App for Themisio {
         let dock_rect = Rect::from_min_max(pos2(content_rect.right() - dock_w, content_rect.top()), pos2(content_rect.right() - dock_w + crate::ai::kit::PANE_W, content_rect.bottom()));
 
         // The page on screen.
+        // draw.io's editor is a window of its own over Themisio's: keep the left edge clear so
+        // the tucked-away app bar can still be reached.
+        let page_rect = if !docked && self.active == Page::App(AppKind::Drawio) { Rect::from_min_max(pos2(page_rect.left() + 6.0, page_rect.top()), page_rect.max) } else { page_rect };
         let mut child = ui.new_child(UiBuilder::new().max_rect(page_rect).id_salt(("themisio-page", self.active)));
         child.set_clip_rect(page_rect);
         match self.active {
@@ -1673,16 +1681,31 @@ impl eframe::App for Themisio {
             }
         }
         if !docked && reveal < 1.0 {
-            // Where the tucked-away bar is: a thin gold line down the left edge, a little brighter
-            // and wider when the pointer comes near, so it is clear where to point.
+            // Where the tucked-away bar is: a thin line down the left edge in the five apps'
+            // colours (PDF, Presentation, draw.io, CalcSheet, Documents), a little brighter and
+            // wider when the pointer comes near, so it is clear where to point.
             let near = ctx.pointer_hover_pos().is_some_and(|p| full.contains(p) && p.x <= full.left() + 28.0);
             let glow = ctx.animate_bool_with_time(Id::unique("themisio-rail-edge-glow"), near, 0.15);
             let fade = 1.0 - reveal;
             let p = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, Id::unique("themisio-rail-edge")));
-            let w = 3.0 + 2.0 * glow;
-            let line = Rect::from_min_size(pos2(full.left(), full.top() + 6.0), vec2(w, full.height() - 12.0));
-            let gold = crate::theme::GOLD_DEEP.lerp_to_gamma(crate::theme::GOLD, glow);
-            p.rect_filled(line, CornerRadius { nw: 0, sw: 0, ne: 2, se: 2 }, gold.gamma_multiply((0.9 + 0.1 * glow) * fade));
+            let w = 1.5 + 1.5 * glow;
+            let (top, bottom) = (full.top() + 6.0, full.bottom() - 6.0);
+            let stops = [AppKind::Pdf, AppKind::Deck, AppKind::Drawio, AppKind::Grid, AppKind::Word].map(|k| k.accent());
+            let alpha = (0.85 + 0.15 * glow) * fade;
+            let mut mesh = egui::Mesh::default();
+            let (x0, x1) = (full.left(), full.left() + w);
+            for (i, c) in stops.iter().enumerate() {
+                let y = top + (bottom - top) * i as f32 / (stops.len() - 1) as f32;
+                let c = c.gamma_multiply(alpha);
+                let base = mesh.vertices.len() as u32;
+                mesh.colored_vertex(pos2(x0, y), c);
+                mesh.colored_vertex(pos2(x1, y), c);
+                if i > 0 {
+                    mesh.add_triangle(base - 2, base - 1, base);
+                    mesh.add_triangle(base - 1, base + 1, base);
+                }
+            }
+            p.add(egui::Shape::mesh(mesh));
         }
 
         // Shell dialogs.
@@ -1699,6 +1722,19 @@ impl eframe::App for Themisio {
         // Notices sit beside the AI pane, not over it.
         let notice_rect = if dock_w > 0.5 { Rect::from_min_max(app_rect.min, pos2(app_rect.right() - dock_w, app_rect.bottom())) } else { app_rect };
         self.notices.ui(&ctx, notice_rect, now, &style);
+
+        // draw.io's editor is drawn by a webview over the window: hide it whenever something of
+        // Themisio's is over the page, or the page isn't shown.
+        let covered = self.active != Page::App(AppKind::Drawio)
+            || self.switch.is_some()
+            || self.dialog.is_some()
+            || self.chooser.is_some()
+            || (!docked && reveal > 0.0)
+            || self.closing.as_ref().is_some_and(|c| matches!(c.stage, CloseStage::Waiting(k) if k != AppKind::Drawio))
+            || egui::Popup::is_any_open(&ctx);
+        if let Some(host) = self.hosts.get(AppKind::Drawio) {
+            host.set_covered(covered);
+        }
 
         // Close flow: did the app shown ask about unsaved work?
         if let Some(closing) = self.closing.as_mut()

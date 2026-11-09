@@ -82,15 +82,16 @@ impl HomeState {
                     ui.add_space(14.0);
                     ui.label(RichText::new(t(lang, "New")).size(13.0).color(p.muted));
                     ui.add_space(4.0);
-                    // Four "new" cards, wrapping on narrow windows.
+                    // Five "new" cards, wrapping on narrow windows.
                     let cards = [
                         (AppKind::Word, t(lang, "Blank document")),
                         (AppKind::Deck, t(lang, "Blank presentation")),
                         (AppKind::Grid, t(lang, "Blank workbook")),
+                        (AppKind::Drawio, t(lang, "Blank diagram")),
                         (AppKind::Pdf, t(lang, "Blank PDF")),
                     ];
                     let gap = 14.0;
-                    let per_row = if width > 760.0 { 4 } else { 2 };
+                    let per_row = if width > 900.0 { 5 } else if width > 560.0 { 3 } else { 2 };
                     let card_w = (width - gap * (per_row as f32 - 1.0)) / per_row as f32;
                     for row in cards.chunks(per_row) {
                         ui.horizontal(|ui| {
@@ -138,7 +139,7 @@ impl HomeState {
                         }
                     }
                     ui.add_space(24.0);
-                    ui.label(RichText::new(t(lang, "Keyboard: Ctrl+Alt+1…5 switch apps, Ctrl+Alt+O opens a file.")).size(12.0).color(p.muted));
+                    ui.label(RichText::new(t(lang, "Keyboard: Ctrl+Alt+1…6 switch apps, Ctrl+Alt+O opens a file.")).size(12.0).color(p.muted));
                     ui.add_space(36.0);
                 });
             });

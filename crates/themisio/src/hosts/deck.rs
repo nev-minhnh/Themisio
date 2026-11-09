@@ -329,6 +329,15 @@ impl Host for DeckHost {
         self.app.run("text.insert", serde_json::json!({"text": text})).map(|_| ()).map_err(|e| e.to_string())
     }
 
+    fn show_start_screen(&mut self) {
+        // DeckCraft's own start page: File › Home (new presentation, themes, recent files).
+        self.app.open_backstage(deckcraft_ui_egui::backstage::Page::Home);
+    }
+
+    fn is_blank(&self) -> bool {
+        self.app.session.documents().iter().all(|d| d.path.is_none() && !d.is_dirty())
+    }
+
     fn activate_tab(&mut self, id: u64) {
         let _ = self.app.run("window.next", serde_json::json!({"index": id}));
     }
