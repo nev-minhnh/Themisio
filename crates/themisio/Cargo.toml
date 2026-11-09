@@ -51,7 +51,7 @@ tempfile = "3"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # UISettings (animation effects, home region), as WordCraft and PdfCraft read them.
-windows = { version = "0.62", default-features = false, features = ["std", "UI_ViewManagement", "System_UserProfile", "Foundation_Collections", "Win32_System_ProcessStatus", "Win32_System_Threading"] }
+windows = { version = "0.62", default-features = false, features = ["std", "UI_ViewManagement", "System_UserProfile", "Foundation_Collections", "Win32_Foundation", "Win32_System_ProcessStatus", "Win32_System_Threading"] }
 # WordCraft's rich clipboard formats (RTF, format names).
 clipboard-win = { version = "5.4", features = ["std"] }
 # Display devices, to draw on the GPU that drives the monitor (PdfCraft #378).

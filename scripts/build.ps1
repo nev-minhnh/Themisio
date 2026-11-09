@@ -1,11 +1,11 @@
 # Build Themisio for Windows 11 (x64 or ARM64).
-# Usage:  powershell -ExecutionPolicy Bypass -File scripts\build.ps1 [-Profile release|quick|dev] [-WithCraftFonts] [-Register]
-#   -Profile         release (default: LTO, fastest app), quick (no LTO, builds much faster), dev
+# Usage:  powershell -ExecutionPolicy Bypass -File scripts\build.ps1 [-Profile dist|release|quick|dev] [-WithCraftFonts] [-Register]
+#   -Profile         dist (default: what the GitHub releases ship, small and quick to start), release (LTO), quick (builds faster), dev
 #   -WithCraftFonts  embed craft-fonts (Japanese/Chinese UI faces, PowerPoint-metric Latin fonts;
 #                    the exe grows by ~80 MB)
 #   -Register        register Themisio's file types for this user after building
 # Needs: Rust 1.95+ (rustup, MSVC toolchain + "Desktop development with C++" build tools), git.
-param([string]$Profile = "release", [switch]$WithCraftFonts, [switch]$Register)
+param([string]$Profile = "dist", [switch]$WithCraftFonts, [switch]$Register)
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root

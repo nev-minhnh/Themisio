@@ -22,8 +22,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
-  CARGO_PROFILE_QUICK_INCREMENTAL: "false"
-  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+    CARGO_NET_GIT_FETCH_WITH_CLI: "true"
 
 jobs:
   windows:
@@ -57,35 +56,38 @@ jobs:
           cache-on-failure: true
           shared-key: themisio-windows
 
-      - name: Build (profile quick)
+      - name: Build (profile dist)
         shell: pwsh
         run: |
           $env:CRAFT_I18N_DIR = (Resolve-Path "upstream\craft-i18n").Path
           $env:CRAFT_I18N_REQUIRED = "1"
-          cargo build -p themisio --profile quick --locked
+          cargo build -p themisio --profile dist --locked
           if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
 
       - name: Test
         shell: pwsh
         run: |
           $env:CRAFT_I18N_DIR = (Resolve-Path "upstream\craft-i18n").Path
-          cargo test -p themisio --profile quick --locked
+          cargo test -p themisio --profile dist --locked
           if ($LASTEXITCODE -ne 0) { throw "cargo test failed" }
 
       - name: Smoke test
         shell: pwsh
         run: |
-          $p = Start-Process -FilePath target\quick\themisio.exe -ArgumentList "--version" -NoNewWindow -Wait -PassThru -RedirectStandardOutput version.txt
+          $p = Start-Process -FilePath target\dist\themisio.exe -ArgumentList "--version" -NoNewWindow -Wait -PassThru -RedirectStandardOutput version.txt
           $out = Get-Content version.txt -Raw
           Write-Host "exit $($p.ExitCode): $out"
           if ($p.ExitCode -ne 0) { throw "themisio.exe --version failed" }
+          $size = (Get-Item target\dist\themisio.exe).Length
+          Write-Host ("themisio.exe: {0:N1} MB" -f ($size / 1MB))
+          "### themisio.exe: {0:N1} MB" -f ($size / 1MB) >> $env:GITHUB_STEP_SUMMARY
 
       - name: Package
         shell: pwsh
         run: |
           $v = "${{ steps.version.outputs.version }}"
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item target\quick\themisio.exe "dist\Themisio-$v.exe"
+          Copy-Item target\dist\themisio.exe "dist\Themisio-$v.exe"
           Copy-Item README.md, LICENSE-MIT, LICENSE-APACHE, NOTICE, CHANGELOG.md dist\
           Compress-Archive -Path "dist\Themisio-$v.exe", dist\README.md, dist\LICENSE-MIT, dist\LICENSE-APACHE, dist\NOTICE, dist\CHANGELOG.md -DestinationPath "Themisio-$v-win-x64.zip" -CompressionLevel Optimal
           git archive --format=zip --prefix="Themisio-$v/" -o "Themisio-$v-source.zip" HEAD

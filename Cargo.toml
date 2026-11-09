@@ -11,7 +11,7 @@ members = ["crates/themisio"]
 exclude = ["upstream", "vendor"]
 
 [workspace.package]
-version = "0.3.1"
+version = "0.3.2"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.95"
@@ -47,6 +47,197 @@ lto = false
 codegen-units = 64
 incremental = true
 strip = true
+
+# The release build (GitHub Actions, scripts/build.ps1). A smaller program starts faster: right
+# after Windows boots, the whole .exe is read from disk and scanned by the antivirus before
+# `main` runs. Code is optimised for size, except the hot paths (page rendering and
+# rasterising, image and PDF decoding, text layout and shaping, egui tessellation, OCR, file
+# parsing), which keep full speed.
+[profile.dist]
+inherits = "release"
+opt-level = "s"
+lto = false
+codegen-units = 16
+incremental = false
+strip = true
+debug = 0
+
+[profile.dist.package.vello_cpu]
+opt-level = 3
+
+[profile.dist.package.vello_common]
+opt-level = 3
+
+[profile.dist.package.fearless_simd]
+opt-level = 3
+
+[profile.dist.package.kurbo]
+opt-level = 3
+
+[profile.dist.package.tiny-skia]
+opt-level = 3
+
+[profile.dist.package.tiny-skia-path]
+opt-level = 3
+
+[profile.dist.package.hayro]
+opt-level = 3
+
+[profile.dist.package.hayro-interpret]
+opt-level = 3
+
+[profile.dist.package.hayro-syntax]
+opt-level = 3
+
+[profile.dist.package.hayro-jbig2]
+opt-level = 3
+
+[profile.dist.package.hayro-jpeg2000]
+opt-level = 3
+
+[profile.dist.package.hayro-ccitt]
+opt-level = 3
+
+[profile.dist.package.hayro-cmap]
+opt-level = 3
+
+[profile.dist.package.hayro-postscript]
+opt-level = 3
+
+[profile.dist.package.lopdf]
+opt-level = 3
+
+[profile.dist.package.zune-jpeg]
+opt-level = 3
+
+[profile.dist.package.zune-core]
+opt-level = 3
+
+[profile.dist.package.png]
+opt-level = 3
+
+[profile.dist.package.fdeflate]
+opt-level = 3
+
+[profile.dist.package.miniz_oxide]
+opt-level = 3
+
+[profile.dist.package.flate2]
+opt-level = 3
+
+[profile.dist.package.simd-adler32]
+opt-level = 3
+
+[profile.dist.package.image]
+opt-level = 3
+
+[profile.dist.package.image-webp]
+opt-level = 3
+
+[profile.dist.package.gif]
+opt-level = 3
+
+[profile.dist.package.tiff]
+opt-level = 3
+
+[profile.dist.package.weezl]
+opt-level = 3
+
+[profile.dist.package.skrifa]
+opt-level = 3
+
+[profile.dist.package.read-fonts]
+opt-level = 3
+
+[profile.dist.package.harfrust]
+opt-level = 3
+
+[profile.dist.package.rustybuzz]
+opt-level = 3
+
+[profile.dist.package.ttf-parser]
+opt-level = 3
+
+[profile.dist.package.font-types]
+opt-level = 3
+
+[profile.dist.package.epaint]
+opt-level = 3
+
+[profile.dist.package.emath]
+opt-level = 3
+
+[profile.dist.package.ecolor]
+opt-level = 3
+
+[profile.dist.package.egui]
+opt-level = 3
+
+[profile.dist.package.wordcraft-layout]
+opt-level = 3
+
+[profile.dist.package.wordcraft-render]
+opt-level = 3
+
+[profile.dist.package.wordcraft-geom]
+opt-level = 3
+
+[profile.dist.package.deckcraft-render]
+opt-level = 3
+
+[profile.dist.package.deckcraft-text]
+opt-level = 3
+
+[profile.dist.package.deckcraft-geom]
+opt-level = 3
+
+[profile.dist.package.deckcraft-color]
+opt-level = 3
+
+[profile.dist.package.gridcraft-calc]
+opt-level = 3
+
+[profile.dist.package.gridcraft-formula]
+opt-level = 3
+
+[profile.dist.package.pdfcraft-render]
+opt-level = 3
+
+[profile.dist.package.pdfcraft-geom]
+opt-level = 3
+
+[profile.dist.package.ratex-layout]
+opt-level = 3
+
+[profile.dist.package.rten]
+opt-level = 3
+
+[profile.dist.package.rten-base]
+opt-level = 3
+
+[profile.dist.package.rten-gemm]
+opt-level = 3
+
+[profile.dist.package.rten-simd]
+opt-level = 3
+
+[profile.dist.package.rten-tensor]
+opt-level = 3
+
+[profile.dist.package.rten-vecmath]
+opt-level = 3
+
+[profile.dist.package.rten-imageproc]
+opt-level = 3
+
+[profile.dist.package.ocrs]
+opt-level = 3
+
+[profile.dist.package.quick-xml]
+opt-level = 3
+
+[profile.dist.package.zip]
+opt-level = 3
 
 # The union of the four apps' patch sets. A `[patch]` only applies at the workspace root, so
 # without this the apps would build against stock egui/winit and lose their reviewed fixes.

@@ -48,3 +48,25 @@ pub fn trim_working_set() {
 
 #[cfg(not(windows))]
 pub fn trim_working_set() {}
+
+/// How long Windows took between creating this process and running `main` (loading the program
+/// from disk and any antivirus scan of it), in milliseconds.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+pub fn since_process_start_ms() -> Option<u64> {
+    use windows::Win32::Foundation::FILETIME;
+    let mut created = FILETIME::default();
+    let (mut exit, mut kernel, mut user) = (FILETIME::default(), FILETIME::default(), FILETIME::default());
+    // SAFETY: GetCurrentProcess returns a pseudo-handle; the four pointers are to live locals.
+    unsafe { windows::Win32::System::Threading::GetProcessTimes(windows::Win32::System::Threading::GetCurrentProcess(), &mut created, &mut exit, &mut kernel, &mut user) }.ok()?;
+    let created = (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime);
+    // FILETIME counts 100 ns ticks since 1601-01-01.
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok()?;
+    let now = (now.as_secs() + 11_644_473_600) * 10_000_000 + u64::from(now.subsec_nanos() / 100);
+    Some(now.checked_sub(created)? / 10_000)
+}
+
+#[cfg(not(windows))]
+pub fn since_process_start_ms() -> Option<u64> {
+    None
+}

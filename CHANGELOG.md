@@ -2,6 +2,15 @@
 
 Lịch sử: Themisio có tên **Ostium** ở 0.1.0 và 0.2.0.
 
+## 0.3.2 — 2026-11-09
+- Khởi động lần đầu sau khi bật máy nhanh hơn. Ngay sau khi Windows khởi động, toàn bộ tệp exe
+  phải được đọc từ ổ đĩa và được phần mềm diệt virus quét trước khi Themisio kịp chạy, nên thời
+  gian tăng theo kích thước tệp. Bản phát hành giờ dùng profile `dist`: tối ưu theo kích thước,
+  chỉ giữ tối ưu tốc độ cho các phần nặng (vẽ trang, giải mã ảnh và PDF, dàn trang, phông chữ,
+  OCR, đọc tệp), nên tệp exe nhỏ hơn nhiều.
+- Nhật ký ghi thời gian khởi động (`%LOCALAPPDATA%\Themisio\logs\themisio.log`): từ lúc Windows
+  tạo tiến trình đến `main`, và đến khung hình đầu tiên.
+
 ## 0.3.1 — 2026-11-08
 - Documents: tên người dùng mặc định (ký hiệu "WU" ở nút tài khoản, tác giả của chú thích và
   theo dõi thay đổi) lấy từ tên người dùng Office trên máy, nếu không có thì từ tên tài khoản

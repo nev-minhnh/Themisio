@@ -943,6 +943,12 @@ impl eframe::App for Themisio {
 
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.passes += 1;
+        if self.passes == 2
+            && let Some(start) = crate::STARTED.get()
+        {
+            // The first frame has been presented: the window is on screen.
+            log::info!("startup: first frame shown {} ms after main", start.elapsed().as_millis());
+        }
         let now = ctx.input(|i| i.time);
         // An app asked to close the window (File ▸ Exit, its save prompt finished, its last
         // document closed): close that app; during the close flow, move on to the next one.

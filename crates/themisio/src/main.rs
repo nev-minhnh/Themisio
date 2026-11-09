@@ -34,6 +34,9 @@ use app_kind::AppKind;
 /// Themisio's version (About, `--version`, the file names of a release).
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// When `main` started, for the startup timings in the log.
+pub static STARTED: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+
 /// The apps Themisio hosts, for About.
 pub const UPSTREAMS: &[(&str, &str)] = &[
     ("Documents — github.com/storytold/wordcraft", "https://github.com/storytold/wordcraft"),
@@ -128,8 +131,13 @@ fn main() -> eframe::Result {
     if let Some(code) = hosts::word_src::print::isolated::helper_mode() {
         std::process::exit(code);
     }
+    let _ = STARTED.set(std::time::Instant::now());
+    let before_main = memory::since_process_start_ms();
     logging::install();
     logging::install_panic_hook();
+    if let Some(ms) = before_main {
+        log::info!("startup: {ms} ms from process creation to main (loading the program from disk, antivirus scans)");
+    }
 
     let mut launch = shell::Launch::default();
     let mut new_window = false;
