@@ -506,7 +506,7 @@ impl Writer {
                         &mut || dismiss = Some(Shown { unit, issue: issue.clone() }),
                         &mut || learn = Some(issue.original.clone()),
                     );
-                    if !panel_open && ui.small_button(t(lang, "Open the writing panel")).clicked() {
+                    if !panel_open && super::kit::quiet(ui, t(lang, "Open the writing panel")).clicked() {
                         open_panel = true;
                     }
                 });
@@ -832,7 +832,7 @@ impl Writer {
             let mut drop = None;
             ui.horizontal_wrapped(|ui| {
                 for (i, w) in s.dictionary.iter().enumerate() {
-                    if ui.small_button(format!("{w}  ×")).on_hover_text(t(lang, "Remove")).clicked() {
+                    if super::kit::chip_removable(ui, w) {
                         drop = Some(i);
                     }
                 }
@@ -874,7 +874,7 @@ impl Writer {
                 ("Ideas", "Brainstorm 8 ideas, angles or titles related to it, as a list."),
                 ("Summarise", "Summarise it in a few sentences."),
             ] {
-                if ui.small_button(t(lang, label)).clicked() {
+                if super::kit::secondary(ui, t(lang, label)).clicked() {
                     run = Some(instruction.to_string());
                 }
             }
@@ -889,7 +889,7 @@ impl Writer {
             if self.go_job.is_some() {
                 ui.spinner();
                 ui.label(t(lang, "Writing…"));
-            } else if ui.add_enabled(!self.prompt.trim().is_empty(), egui::Button::new(t(lang, "Generate"))).clicked() {
+            } else if super::kit::primary_enabled(ui, !self.prompt.trim().is_empty(), t(lang, "Generate")).clicked() {
                 run = Some(self.prompt.trim().to_string());
             }
         });
@@ -927,20 +927,20 @@ impl Writer {
                 });
             });
             ui.horizontal(|ui| {
-                if ui.button(t(lang, "Insert")).on_hover_text(t(lang, "At the cursor, after the selection")).clicked() {
+                if super::kit::primary(ui, t(lang, "Insert")).on_hover_text(t(lang, "At the cursor, after the selection")).clicked() {
                     match host.ai_insert(&text) {
                         Ok(()) => out.notices.push((crate::notices::Level::Success, t(lang, "Text inserted").into())),
                         Err(e) => out.notices.push((crate::notices::Level::Error, e)),
                     }
                 }
-                if ui.button(t(lang, "Replace selection")).clicked() {
+                if super::kit::secondary(ui, t(lang, "Replace selection")).clicked() {
                     let r = host.ai_target().ok_or_else(|| t(lang, "Select the text to replace.").to_string()).and_then(|tg| host.ai_replace_all(&tg, &text));
                     match r {
                         Ok(()) => out.notices.push((crate::notices::Level::Success, t(lang, "Text replaced").into())),
                         Err(e) => out.notices.push((crate::notices::Level::Error, e)),
                     }
                 }
-                if ui.button(t(lang, "Copy")).clicked() {
+                if super::kit::secondary(ui, t(lang, "Copy")).clicked() {
                     ui.ctx().copy_text(text.clone());
                     out.notices.push((crate::notices::Level::Success, t(lang, "Copied to the clipboard").into()));
                 }
@@ -1047,7 +1047,7 @@ impl Writer {
             if self.orig_job.is_some() {
                 ui.spinner();
                 ui.label(t(lang, "Searching the web…"));
-            } else if ui.add_enabled(preferred.is_some() && !self.units.is_empty(), egui::Button::new(t(lang, "Check originality"))).clicked()
+            } else if super::kit::primary_enabled(ui, preferred.is_some() && !self.units.is_empty(), t(lang, "Check originality")).clicked()
                 && let Some(model) = preferred.clone()
             {
                 let text: String = self.units.iter().map(|u| u.text.as_str()).collect::<Vec<_>>().join("\n").chars().take(6000).collect();
@@ -1127,14 +1127,14 @@ fn issue_body(ui: &mut egui::Ui, issue: &Issue, lang: Lang, card: bool, accept: 
         ui.label(RichText::new(&issue.explanation).small());
     }
     ui.horizontal(|ui| {
-        if !card && ui.small_button(t(lang, "Accept")).clicked() {
+        if !card && super::kit::primary(ui, t(lang, "Accept")).clicked() {
             accept();
         }
-        if ui.small_button(t(lang, "Dismiss")).clicked() {
+        if super::kit::secondary(ui, t(lang, "Dismiss")).clicked() {
             dismiss();
         }
         let one_word = !issue.original.trim().contains(char::is_whitespace) && issue.cat == Cat::Correctness;
-        if one_word && ui.small_button(t(lang, "Add to dictionary")).clicked() {
+        if one_word && super::kit::secondary(ui, t(lang, "Add to dictionary")).clicked() {
             learn();
         }
     });

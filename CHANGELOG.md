@@ -2,6 +2,13 @@
 
 Lịch sử: Themisio có tên **Ostium** ở 0.1.0 và 0.2.0.
 
+## 0.5.2 — 2026-11-09
+- Tra nghĩa khi nhấp đúp: popup hiện ngay dưới con trỏ chuột (trước đây hiện ở chỗ khác rồi tự
+  đóng sau chưa tới nửa giây). Popup chỉ tự đóng khi chuột đã vào popup rồi rời đi, hoặc khi chuột đi
+  hẳn ra xa chỗ vừa nhấp; Esc vẫn đóng ngay.
+- Nút trong thẻ gợi ý, popup AI và thẻ Viết dễ đọc hơn ở giao diện tối: Nhận/Chèn/Tạo dùng màu
+  logo, Bỏ qua/Thêm vào từ điển/Sao chép có viền rõ.
+
 ## 0.5.1 — 2026-11-09
 - Popup AI (Tra nghĩa, Dịch, Hỏi AI) tự đóng khi nhấn **Esc** hoặc khi đưa chuột ra xa — không cần
   bấm dấu ×. Popup Hỏi AI không tự đóng khi bạn đang gõ yêu cầu (Esc vẫn đóng), và không đóng khi

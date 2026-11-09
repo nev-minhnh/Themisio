@@ -622,6 +622,8 @@ impl Themisio {
             && target.text.chars().count() <= 48
         {
             let pos = ctx.pointer_latest_pos().unwrap_or(area.center());
+            // At the pointer that double-clicked, not at the caret.
+            let target = crate::hosts::AiTarget { screen: None, ..target };
             self.assist.open_at(ctx, kind, Some(target), Mode::Define, pos, &self.settings.ai, lang);
         }
         if request == Some(Mode::Check) {

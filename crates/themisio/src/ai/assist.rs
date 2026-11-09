@@ -115,6 +115,12 @@ pub struct Assist {
     skill_list: Option<Vec<super::skills::Skill>>,
     /// When the pointer moved away from the popup (it closes shortly after).
     away_since: Option<f64>,
+    /// Where the pointer was when the popup opened, and whether it has been over the popup since:
+    /// moving away only counts once the pointer has been over it or has clearly left the spot.
+    opened_from: Option<Pos2>,
+    entered: bool,
+    /// Place the popup at `pos` on the next pass (it is movable afterwards).
+    place: bool,
 }
 
 impl Default for Assist {
@@ -125,6 +131,9 @@ impl Default for Assist {
             target: None,
             pos: pos2(200.0, 200.0),
             away_since: None,
+            opened_from: None,
+            entered: false,
+            place: false,
             mode: Mode::Check,
             model: String::new(),
             effort: String::new(),
@@ -220,8 +229,15 @@ impl Assist {
     pub fn open_at(&mut self, ctx: &egui::Context, kind: AppKind, target: Option<AiTarget>, mode: Mode, pos: Pos2, s: &AiSettings, lang: Lang) {
         self.open = true;
         self.away_since = None;
+        self.entered = false;
+        self.place = true;
+        self.opened_from = ctx.pointer_latest_pos();
         self.kind = Some(kind);
-        self.pos = target.as_ref().and_then(|t| t.screen).unwrap_or(pos) + vec2(8.0, 8.0);
+        // Right under the pointer (or the caret, from a shortcut), so it is where you look.
+        self.pos = match target.as_ref().and_then(|t| t.screen) {
+            Some(caret) => caret + vec2(8.0, 8.0),
+            None => pos + vec2(-18.0, 14.0),
+        };
         self.target = target;
         self.mode = mode;
         self.job = None;
@@ -420,9 +436,11 @@ impl Assist {
         let mut close = false;
         let mut restart = false;
         let busy = self.job.is_some();
-        let area = egui::Area::new(egui::Id::unique("themisio-assist"))
-            .order(egui::Order::Foreground)
-            .default_pos(start)
+        let mut area = egui::Area::new(egui::Id::unique("themisio-assist")).order(egui::Order::Foreground).default_pos(start);
+        if std::mem::take(&mut self.place) {
+            area = area.current_pos(start);
+        }
+        let area = area
             .movable(true)
             .constrain(true)
             .show(ctx, |ui| {
@@ -500,11 +518,15 @@ impl Assist {
         let typing = self.mode == Mode::Ask && (!self.request.trim().is_empty() || ctx.memory(|m| m.focused().is_some()));
         let menu_open = egui::Popup::is_any_open(ctx);
         let dragging = area.response.dragged() || ctx.input(|i| i.pointer.any_down());
+        if ctx.pointer_latest_pos().is_some_and(|p| area.response.rect.contains(p)) {
+            self.entered = true;
+        }
+        let left_spot = |p: Pos2| self.entered || self.opened_from.is_none_or(|o| o.distance(p) > 140.0);
         match ctx.pointer_latest_pos() {
-            Some(p) if !rect.contains(p) && !typing && !menu_open && !dragging => {
+            Some(p) if !rect.contains(p) && left_spot(p) && !typing && !menu_open && !dragging => {
                 let now = ctx.input(|i| i.time);
                 let since = *self.away_since.get_or_insert(now);
-                if now - since > 0.35 {
+                if now - since > 0.6 {
                     close = true;
                 } else {
                     ctx.request_repaint_after(std::time::Duration::from_millis(60));
@@ -536,7 +558,7 @@ impl Assist {
                     Mode::Define => t(lang, "Looking up…"),
                 };
                 ui.label(format!("{what} {secs} s"));
-                if ui.small_button(t(lang, "Cancel")).clicked() {
+                if super::kit::secondary(ui, t(lang, "Cancel")).clicked() {
                     self.job = None;
                 }
             });
@@ -544,7 +566,7 @@ impl Assist {
         }
         if let Some(e) = self.error.clone() {
             ui.colored_label(Color32::from_rgb(0xF0, 0x3C, 0x45), e);
-            if ui.button(t(lang, "Try again")).clicked() {
+            if super::kit::secondary(ui, t(lang, "Try again")).clicked() {
                 *restart = true;
             }
             return true;
@@ -566,7 +588,7 @@ impl Assist {
         ui.horizontal(|ui| {
             // Quick requests.
             for q in ["Fix grammar", "More formal", "Shorter", "Clearer", "Friendlier"] {
-                if ui.small_button(t(lang, q)).clicked() {
+                if super::kit::secondary(ui, t(lang, q)).clicked() {
                     self.request = t(lang, q).to_string();
                     *restart = true;
                 }
@@ -591,7 +613,7 @@ impl Assist {
                 }
             });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.add_enabled(!busy && !self.request.trim().is_empty(), egui::Button::new(t(lang, "Send"))).on_hover_text("Ctrl+Enter").clicked() || send_key {
+                if super::kit::primary_enabled(ui, !busy && !self.request.trim().is_empty(), t(lang, "Send")).on_hover_text("Ctrl+Enter").clicked() || send_key {
                     *restart = true;
                 }
             });
@@ -620,10 +642,10 @@ impl Assist {
             ui.label(RichText::new(n).small().weak());
         }
         ui.horizontal(|ui| {
-            if self.target.is_some() && self.mode != Mode::Define && ui.button(t(lang, "Replace")).clicked() {
+            if self.target.is_some() && self.mode != Mode::Define && super::kit::primary(ui, t(lang, "Replace")).clicked() {
                 acts.push(Act::Replace(answer.clone()));
             }
-            if ui.button(t(lang, "Copy")).clicked() {
+            if super::kit::secondary(ui, t(lang, "Copy")).clicked() {
                 acts.push(Act::Copy(answer.clone()));
             }
         });
